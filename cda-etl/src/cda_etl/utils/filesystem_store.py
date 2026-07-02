@@ -52,6 +52,17 @@ def write_json(value: Any, *path_parts: str) -> None:
         json.dump(value, file, indent=2)
 
 
+def list_json_stems(*path_parts: str) -> list[str]:
+    if not path_parts:
+        return []
+
+    directory = _STORAGE_ROOT.joinpath(*_normalize_path_parts(*path_parts))
+    if not directory.exists() or not directory.is_dir():
+        return []
+
+    return sorted(path.stem for path in directory.glob("*.json") if path.is_file())
+
+
 def _build_path(*path_parts: str) -> Path | None:
     if not path_parts:
         return None
@@ -72,4 +83,4 @@ def _normalize_path_parts(*path_parts: str) -> list[str]:
     return normalized_parts
 
 
-__all__ = ["read_json", "set_storage_root", "write_json"]
+__all__ = ["list_json_stems", "read_json", "set_storage_root", "write_json"]

@@ -10,16 +10,186 @@ settings:
 offices:
   - id: SWT
     enabled: true
+    properties:
+      - regi
+          - associations:
+                 - properties:
+                     - timeseries:
+                        - id: Regi_project_INPUT.Elevation_project_storage_raw.?GLOBAL?
+                        - toPublished: Elev-Pool
+                 - published:
+                     - parameter: Elev
+                     - toProperty: Regi_project_INPUT.Elevation_project_storage_raw.EUFA
+      - categoryId: LOCATION LEVEL ASSOCIATION
+        properties:
+          - id: Regi_project_INPUT.Evap_pan_to_lake_multiplier.?GLOBAL?
+      - categoryId: LOCATION RATING ASSOCIATION
+        properties:
+          - id: Regi_project_INPUT.Elev_Area.?GLOBAL?
+          - id: Regi_project_INPUT.Elev_Stor.?GLOBAL?
+      - categoryId: LOCATION TIME SERIES ASSOCIATION
+        properties:
+          - idPattern: Regi_*.EUFA
+          - id: Regi_lock_INPUT.Navigation_flow_1day.?GLOBAL?
+          - id: Regi_lock_INPUT.Navigation_lockage_count_1day.?GLOBAL?
+          - id: Regi_lock_OUTPUT.Navigation_flow_1day.?GLOBAL?
+          - id: Regi_lock_OUTPUT.Navigation_lockage_count_1day.?GLOBAL?
+          - id: Regi_project_INPUT.Elevation_elevation_pool_raw.?GLOBAL?
+          - id: Regi_project_INPUT.Elevation_elevation_pool_rev.?GLOBAL?
+          - id: Regi_project_INPUT.Elevation_elevation_tailwater_raw.?GLOBAL?
+          - id: Regi_project_INPUT.Elevation_elevation_tailwater_rev.?GLOBAL?
+          - id: Regi_project_INPUT.Elevation_Project_Notes.?GLOBAL?
+          - id: Regi_project_INPUT.Elevation_project_storage_raw.?GLOBAL?
+          - id: Regi_project_INPUT.Elevation_project_storage_rev.?GLOBAL?
+          - id: Regi_project_INPUT.GateSettings_elevation_pool.?GLOBAL?
+          - id: Regi_project_INPUT.GateSettings_elevation_tailwater.?GLOBAL?
+          - id: Regi_project_INPUT.Hourly Inflow and Weather Project Notes.?GLOBAL?
+          - id: Regi_project_INPUT.Hourly_adjusted_inflow.?GLOBAL?
+          - id: Regi_project_INPUT.Hourly_air_temp.?GLOBAL?
+          - id: Regi_project_INPUT.Hourly_area.?GLOBAL?
+          - id: Regi_project_INPUT.Hourly_barometric_pressure.?GLOBAL?
+          - id: Regi_project_INPUT.Hourly_basin_average.?GLOBAL?
+          - id: Regi_project_INPUT.Hourly_computed_inflow.?GLOBAL?
+          - id: Regi_project_INPUT.Hourly_computed_inflow_daily.?GLOBAL?
+          - id: Regi_project_INPUT.Hourly_elevation.?GLOBAL?
+          - id: Regi_project_INPUT.Hourly_lake_condition.?GLOBAL?
+          - id: Regi_project_INPUT.Hourly_project_evap.?GLOBAL?
+          - id: Regi_project_INPUT.Hourly_project_precip.?GLOBAL?
+          - id: Regi_project_INPUT.Hourly_relative_humidity.?GLOBAL?
+          - id: Regi_project_INPUT.Hourly_seepage.?GLOBAL?
+          - id: Regi_project_INPUT.Hourly_storage.?GLOBAL?
+          - id: Regi_project_INPUT.Hourly_weather_condition.?GLOBAL?
+          - id: Regi_project_INPUT.Hourly_wind_direction.?GLOBAL?
+          - id: Regi_project_INPUT.Hourly_wind_speed.?GLOBAL?
+          - id: Regi_project_INPUT.HydropowerSettings_elevation_pool.?GLOBAL?
+          - id: Regi_project_INPUT.HydropowerSettings_elevation_tailwater.?GLOBAL?
+          - id: Regi_project_INPUT.Inflow_adjusted_inflow.?GLOBAL?
+          - id: Regi_project_INPUT.Inflow_average_project_release.?GLOBAL?
+          - id: Regi_project_INPUT.Inflow_basin_avg_precip_1day.?GLOBAL?
+          - id: Regi_project_INPUT.Inflow_basin_avg_precip_1day_alt.?GLOBAL?
+          - id: Regi_project_INPUT.Inflow_computed_inflow.?GLOBAL?
+          - id: Regi_project_INPUT.Inflow_net_pumpage.?GLOBAL?
+          - id: Regi_project_INPUT.Inflow_project_elevation.?GLOBAL?
+          - id: Regi_project_INPUT.Inflow_project_evap_1day.?GLOBAL?
+          - id: Regi_project_INPUT.Inflow_project_evap_1day_alt.?GLOBAL?
+          - id: Regi_project_INPUT.Inflow_project_precip_1day.?GLOBAL?
+          - id: Regi_project_INPUT.Inflow_project_precip_1day_alt.?GLOBAL?
+          - id: Regi_project_INPUT.Inflow_wind_direction_instantaneous.?GLOBAL?
+          - id: Regi_project_INPUT.Inflow_wind_direction_instantaneous_alt.?GLOBAL?
+          - id: Regi_project_INPUT.Inflow_wind_speed_instantaneous.?GLOBAL?
+          - id: Regi_project_INPUT.Inflow_wind_speed_instantaneous_alt.?GLOBAL?
+          - id: Regi_project_INPUT.Releases_elevation.?GLOBAL?
+          - id: Regi_project_INPUT.Weather_basin_avg_precip_1day.?GLOBAL?
+          - id: Regi_project_INPUT.Weather_computed_evap_1day.?GLOBAL?
+          - id: Regi_project_INPUT.Weather_lake_condition.?GLOBAL?
+          - id: Regi_project_INPUT.Weather_lookup_evap_1day.?GLOBAL?
+          - id: Regi_project_INPUT.Weather_pan_evap_1day.?GLOBAL?
+          - id: Regi_project_INPUT.Weather_pan_evap_1day_alt.?GLOBAL?
+          - id: Regi_project_INPUT.Weather_project_air_temperature.?GLOBAL?
+          - id: Regi_project_INPUT.Weather_project_baro_pres.?GLOBAL?
+          - id: Regi_project_INPUT.Weather_project_elevation.?GLOBAL?
+          - id: Regi_project_INPUT.Weather_project_evap_1day.?GLOBAL?
+          - id: Regi_project_INPUT.Weather_project_evap_type.?GLOBAL?
+          - id: Regi_project_INPUT.Weather_project_obs_precip_1day.?GLOBAL?
+          - id: Regi_project_INPUT.Weather_project_precip_1day.?GLOBAL?
+          - id: Regi_project_INPUT.Weather_project_relh_temperature.?GLOBAL?
+          - id: Regi_project_INPUT.Weather_weather_condition.?GLOBAL?
+          - id: Regi_project_INPUT.Weather_wind_direction_instantaneous.?GLOBAL?
+          - id: Regi_project_INPUT.Weather_wind_speed_instantaneous.?GLOBAL?
+          - id: Regi_project_OUTPUT.Elevation_elevation_pool_rev.?GLOBAL?
+          - id: Regi_project_OUTPUT.Elevation_elevation_tailwater_rev.?GLOBAL?
+          - id: Regi_project_OUTPUT.Elevation_Project_Notes.?GLOBAL?
+          - id: Regi_project_OUTPUT.Elevation_project_storage_rev.?GLOBAL?
+          - id: Regi_project_OUTPUT.Hourly_basin_average.?GLOBAL?
+          - id: Regi_project_OUTPUT.Hourly_computed_inflow_daily.?GLOBAL?
+          - id: Regi_project_OUTPUT.Inflow_adjusted_inflow.?GLOBAL?
+          - id: Regi_project_OUTPUT.Weather_basin_avg_precip_1day.?GLOBAL?
+          - id: Regi_project_OUTPUT.Weather_lake_condition.?GLOBAL?
+          - id: Regi_project_OUTPUT.Weather_project_evap_1day.?GLOBAL?
+          - id: Regi_project_OUTPUT.Weather_project_evap_type.?GLOBAL?
+          - id: Regi_project_OUTPUT.Weather_project_precip_1day.?GLOBAL?
+          - id: Regi_project_OUTPUT.Weather_weather_condition.?GLOBAL?
+          - id: Regi_project_OUTPUT.Weather_wind_direction_instantaneous.?GLOBAL?
+          - id: Regi_project_OUTPUT.Weather_wind_speed_instantaneous.?GLOBAL?
     projects:
       - id: EUFA
         enabled: true
         locations:
           - id: EUFA-Dam
-            enabled: true
         timeseries:
           - id: EUFA.Elev.Inst.1Hour.0.Ccp-Rev
-            enabled: true
+          - id: EUFA.Opening.Inst.0.0.MANUAL
+          - id: EUFA.Dir-Wind.Inst.1Hour.0.Ccp-Rev
+          - id: EUFA.Speed-Wind.Inst.1Hour.0.Ccp-Rev
+          - id: EUFA.Flow-Navigation Out.Total.~1Day~0s.1Day.Rev-Regi-Computed
+          - id: EUFA.Count-Lockages.Total.~1Day~0s.1Day.Rev-Manual
+          - id: EUFA.Elev.Inst.1Hour.0.Decodes-Raw
+          - id: EUFA.Elev-Tailwater.Inst.1Hour.0.Decodes-Raw
+          - id: EUFA.Elev-Tailwater.Inst.1Hour.0.Ccp-Rev
+          - id: EUFA.Text.Inst.~1Day.0.Wcds-Rev
+          - id: EUFA.Stor.Inst.1Hour.0.Ccp-Raw
+          - id: EUFA.Stor.Inst.1Hour.0.Ccp-Rev
+          - id: EUFA.Flow-Res In.Ave.~1Day.1Day.Copied-Ccp-Adjusted
+          - id: EUFA.Temp-Air.Inst.1Hour.0.Ccp-Rev
+          - id: EUFA.Precip-Mean Areal.Total.~1Day~7h.1Day.Metvue-Computed
+          - id: EUFA.Flow-Res In.Ave.1Hour.1Hour.Regi-Rev-Computed
+          - id: EUFA.Evap.Total.~1Day.1Day.Ccp-Rev
+          - id: EUFA.Precip-Inc.Total.1Hour.1Hour.Ccp-Rev
+          - id: EUFA.%-Humidity.Inst.1Hour.0.Ccp-Rev
+          - id: EUFA.Flow-Res In.Ave.~1Day~0s.1Day.Regi-Rev-Adjusted
+          - id: EUFA.Flow-Res Out.Ave.~1Day~0s.1Day.Rev-Regi-Flowgroup
+          - id: EUFA.Precip-Mean Areal.Total.~1Day.1Day.Metvue-Computed
+          - id: EUFA.Flow-Res In.Ave.~1Day~0s.1Day.Regi-Rev-Computed
+          - id: EUFA.Flow-Net Pumpage.Ave.1Day.1Day.Regi-Rev-Flowgroup
+          - id: EUFA.Evap.Total.~1Day~7h.1Day.Ccp-Rev
+          - id: EUFA.Precip-Inc.Total.~1Day~7h.1Day.Ccp-Rev
+          - id: EUFA.Precip-Alt.Total.1Day.1Day.Decodes-Raw
+          - id: EUFA.Dir-Wind.Inst.1Hour.0.Decodes-Raw
+          - id: EUFA.Dir-Wind Alt.Inst.1Hour.0.Ccp-Rev
+          - id: EUFA.Speed-Wind.Inst.1Hour.0.Decodes-Raw
+          - id: EUFA.Speed-Wind Alt.Inst.1Hour.0.Ccp-Rev
+          - id: EUFA.Code-Lake Condition.Inst.1Day.0.Wcds-Obs
+          - id: EUFA.Evap-Pan.Total.1Day.0.wcds-obs
+          - id: EUFA.Temp-Air.Inst.1Hour.0.Decodes-Raw
+          - id: EUFA.Code-Evap Type.Total.~1Day~7h.1Day.Ccp-Rev
+          - id: EUFA.%-Humidity.Inst.1Hour.0.Decodes-Raw
+          - id: EUFA.Code-Weather Condition.Inst.1Day.0.Wcds-Obs
         outlets: []
         turbines: []
         embankments: []
-        clobs: []
+        clobs:
+          - id: FLOW.EUFA.PROJECT_TOTAL
+        locationLevels:
+          - id: EUFA-Dam.Elev.Inst.0.Top of Flood
+            por: true
+        ratings:
+          - id: EUFA.Stage;Flow.Standard.Production
+            por: true
+          - id: EUFA.Elev;Area.Linear.Production
+            por: true
+          - id: EUFA.Elev;Stor.Linear.Production
+            por: true
+        properties:
+          - categoryId: LOCATION TIME SERIES ASSOCIATION
+            properties:
+              - idPattern: Regi_*.EUFA
+              - id: Regi_gate_INPUT.GateSettings_gate_opening.EUFA
+              - id: Regi_gate_OUTPUT.GateSettings_gate_opening.EUFA
+              - id: Regi_gate_PRIMARY.GateSettings_gate_opening.EUFA
+              - id: Regi_project_INPUT.Hourly_lake_condition.EUFA
+              - id: Regi_project_INPUT.Hourly_water_temp.EUFA
+              - id: Regi_project_INPUT.Hourly_weather_condition.EUFA
+              - id: Regi_project_INPUT.Hourly_wind_direction.EUFA
+              - id: Regi_project_INPUT.Hourly_wind_speed.EUFA
+              - id: Regi_project_OUTPUT.Hourly_lake_condition.EUFA
+              - id: Regi_project_OUTPUT.Hourly_water_temp.EUFA
+              - id: Regi_project_OUTPUT.Hourly_weather_condition.EUFA
+              - id: Regi_project_OUTPUT.Hourly_wind_direction.EUFA
+              - id: Regi_project_OUTPUT.Hourly_wind_speed.EUFA
+              - id: Regi_project_PRIMARY.Hourly_lake_condition.EUFA
+              - id: Regi_project_PRIMARY.Hourly_water_temp.EUFA
+              - id: Regi_project_PRIMARY.Hourly_weather_condition.EUFA
+              - id: Regi_project_PRIMARY.Hourly_wind_direction.EUFA
+              - id: Regi_project_PRIMARY.Hourly_wind_speed.EUFA
+  - id: SWL
+

@@ -20,11 +20,15 @@ import logging
 import os
 import re
 import location
+import location_level
 import project
+import property
+import rating
 import timeseries
+import clob
 import utils.threading_util
 import utils.filesystem_store
-from config import DownloadConfig, ProjectConfig
+from config import DownloadConfig, OfficeConfig, ProjectConfig
 from session_manager import SessionManager
 
 logger = logging.getLogger(__name__)
@@ -76,6 +80,8 @@ def pipeline(config: DownloadConfig, session_manager: SessionManager) -> None:
             for office in config.offices(enabled_only=True):
                 logger.info(f"Processing office {office.id}")
 
+                _stage_office_data(office)
+
                 for project_config in office.projects(enabled_only=True):
                     _stage_project_data(project_config, config)
     else:
@@ -85,8 +91,36 @@ def pipeline(config: DownloadConfig, session_manager: SessionManager) -> None:
         for office in config.offices(enabled_only=True):
             logger.info(f"Publishing office {office.id}")
 
+            _publish_office_data(office)
+
             for project_config in office.projects(enabled_only=True):
                 _publish_project_data(project_config, config)
+
+
+def _stage_office_data(office_config: OfficeConfig) -> None:
+    office_properties = list(office_config.properties(enabled_only=True))
+
+    logger.info(
+        "Stage inputs for office %s: %d global propert(y/ies)",
+        office_config.id,
+        len(office_properties),
+    )
+
+    logger.info("Staging global properties for office %s", office_config.id)
+    property.stage_properties(office_config.id, office_properties)
+
+
+def _publish_office_data(office_config: OfficeConfig) -> None:
+    office_properties = list(office_config.properties(enabled_only=True))
+
+    logger.info(
+        "Publish inputs for office %s: %d global propert(y/ies)",
+        office_config.id,
+        len(office_properties),
+    )
+
+    logger.info("Publishing global properties for office %s", office_config.id)
+    property.publish_staged_properties(office_config.id, office_properties)
 
 
 def _stage_project_data(project_config: ProjectConfig, config: DownloadConfig) -> None:
@@ -94,12 +128,20 @@ def _stage_project_data(project_config: ProjectConfig, config: DownloadConfig) -
 
     project_locations = list(project_config.locations(enabled_only=True))
     project_timeseries = list(project_config.timeseries(enabled_only=True))
+    project_clobs = list(project_config.clobs(enabled_only=True))
+    project_levels = list(project_config.location_levels(enabled_only=True))
+    project_ratings = list(project_config.ratings(enabled_only=True))
+    project_properties = list(project_config.properties(enabled_only=True))
 
     logger.info(
-        "Stage inputs for %s: %d location(s), %d timeseries item(s)",
+        "Stage inputs for %s: %d location(s), %d timeseries item(s), %d clob(s), %d location level(s), %d rating(s), %d propert(y/ies)",
         project_config.qualified_id,
         len(project_locations),
         len(project_timeseries),
+        len(project_clobs),
+        len(project_levels),
+        len(project_ratings),
+        len(project_properties),
     )
 
     logger.info("Staging locations for project %s", project_config.qualified_id)
@@ -113,6 +155,24 @@ def _stage_project_data(project_config: ProjectConfig, config: DownloadConfig) -
         config.settings.start_time,
         config.settings.end_time,
     )
+    logger.info("Staging clobs for project %s", project_config.qualified_id)
+    clob.stage_clobs(project_config.office_id, project_clobs)
+    logger.info("Staging location levels for project %s", project_config.qualified_id)
+    location_level.stage_location_levels(
+        project_config.office_id,
+        project_levels,
+        config.settings.start_time,
+        config.settings.end_time,
+    )
+    logger.info("Staging ratings for project %s", project_config.qualified_id)
+    rating.stage_ratings(
+        project_config.office_id,
+        project_ratings,
+        config.settings.start_time,
+        config.settings.end_time,
+    )
+    logger.info("Staging properties for project %s", project_config.qualified_id)
+    property.stage_properties(project_config.office_id, project_properties)
     logger.info("Completed staging for project %s", project_config.qualified_id)
 
 
@@ -133,12 +193,20 @@ def _publish_project_data(project_config: ProjectConfig, config: DownloadConfig)
 
     project_locations = list(project_config.locations(enabled_only=True))
     project_timeseries = list(project_config.timeseries(enabled_only=True))
+    project_clobs = list(project_config.clobs(enabled_only=True))
+    project_levels = list(project_config.location_levels(enabled_only=True))
+    project_ratings = list(project_config.ratings(enabled_only=True))
+    project_properties = list(project_config.properties(enabled_only=True))
 
     logger.info(
-        "Publish inputs for %s: %d location(s), %d timeseries item(s)",
+        "Publish inputs for %s: %d location(s), %d timeseries item(s), %d clob(s), %d location level(s), %d rating(s), %d propert(y/ies)",
         project_config.qualified_id,
         len(project_locations),
         len(project_timeseries),
+        len(project_clobs),
+        len(project_levels),
+        len(project_ratings),
+        len(project_properties),
     )
 
     logger.info("Publishing locations for project %s", project_config.qualified_id)
@@ -152,6 +220,24 @@ def _publish_project_data(project_config: ProjectConfig, config: DownloadConfig)
         config.settings.start_time,
         config.settings.end_time,
     )
+    logger.info("Publishing clobs for project %s", project_config.qualified_id)
+    clob.publish_staged_clobs(project_config.office_id, project_clobs)
+    logger.info("Publishing location levels for project %s", project_config.qualified_id)
+    location_level.publish_staged_location_levels(
+        project_config.office_id,
+        project_levels,
+        config.settings.start_time,
+        config.settings.end_time,
+    )
+    logger.info("Publishing ratings for project %s", project_config.qualified_id)
+    rating.publish_staged_ratings(
+        project_config.office_id,
+        project_ratings,
+        config.settings.start_time,
+        config.settings.end_time,
+    )
+    logger.info("Publishing properties for project %s", project_config.qualified_id)
+    property.publish_staged_properties(project_config.office_id, project_properties)
     logger.info("Completed publish for project %s", project_config.qualified_id)
 
 

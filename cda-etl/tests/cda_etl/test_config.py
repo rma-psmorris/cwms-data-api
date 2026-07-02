@@ -37,6 +37,13 @@ def test_download_config_from_yaml():
     assert offices[0].id == "SWT"
     assert offices[1].id == "FWR"
 
+    swt_office_properties = list(offices[0].properties())
+    assert len(swt_office_properties) == 2
+    assert swt_office_properties[0].category_id == "REGI"
+    assert swt_office_properties[0].id == "SWT.GLOBAL.PROPERTY"
+    assert swt_office_properties[1].category_id == "REGI"
+    assert swt_office_properties[1].all_in_category is True
+
     swt_projects = list(offices[0].projects())
     assert len(swt_projects) == 2
     assert swt_projects[0].qualified_id == "SWT.EUFA"
@@ -56,6 +63,32 @@ def test_download_config_from_yaml():
     assert len(eufa_timeseries) == 2
     assert eufa_timeseries[0].id == "EUFA.Elev.Inst.1Hour.0.Ccp-Rev"
     assert eufa_timeseries[1].id == "EUFA.Flow.Inst.1Hour.0.Ccp-Rev"
+
+    eufa_clobs = list(swt_projects[0].clobs())
+    assert len(eufa_clobs) == 1
+    assert eufa_clobs[0].id == "SWT.EUFA.PROJECT.NOTES"
+
+    eufa_levels = list(swt_projects[0].location_levels())
+    assert len(eufa_levels) == 1
+    assert eufa_levels[0].id == "SWT.EUFA-Dam.Elev.Inst.0.Top of Flood"
+    assert eufa_levels[0].period_of_record is True
+
+    eufa_ratings = list(swt_projects[0].ratings())
+    assert len(eufa_ratings) == 1
+    assert eufa_ratings[0].id == "SWT.EUFA.Stage;Flow.Standard.Production"
+    assert eufa_ratings[0].period_of_record is True
+
+    eufa_properties = list(swt_projects[0].properties())
+    assert len(eufa_properties) == 2
+    assert eufa_properties[0].category_id == "REGI"
+    assert eufa_properties[0].id == "EUFA.ETL.FLAG"
+    assert eufa_properties[1].category_id == "REGI"
+    assert eufa_properties[1].id == "EUFA.ETL.ENABLED"
+
+    bend_properties = list(swt_projects[1].properties())
+    assert len(bend_properties) == 1
+    assert bend_properties[0].category_id == "REGI"
+    assert bend_properties[0].all_in_category is True
 
 
 def test_download_config_requires_offices(tmp_path):

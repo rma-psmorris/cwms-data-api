@@ -45,3 +45,18 @@ def test_write_json_uses_timeseries_id_filename(tmp_path):
     assert expected_path.exists()
     assert expected_path.read_text(encoding="utf-8") == "{\n  \"value\": 2\n}"
 
+
+def test_list_json_stems_returns_sorted_stems(tmp_path):
+    filesystem_store.set_storage_root(tmp_path)
+
+    filesystem_store.write_json({"value": 1}, "SWT", "Properties", "REGI", "B")
+    filesystem_store.write_json({"value": 2}, "SWT", "Properties", "REGI", "A")
+
+    assert filesystem_store.list_json_stems("SWT", "Properties", "REGI") == ["A", "B"]
+
+
+def test_list_json_stems_returns_empty_for_missing_directory(tmp_path):
+    filesystem_store.set_storage_root(tmp_path)
+
+    assert filesystem_store.list_json_stems("SWT", "Properties", "REGI") == []
+

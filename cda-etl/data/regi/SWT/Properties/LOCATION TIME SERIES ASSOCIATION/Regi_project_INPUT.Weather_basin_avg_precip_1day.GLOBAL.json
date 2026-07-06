@@ -1,0 +1,7 @@
+{
+  "office-id": "SWT",
+  "category": "LOCATION TIME SERIES ASSOCIATION",
+  "name": "Regi_project_INPUT.Weather_basin_avg_precip_1day.?GLOBAL?",
+  "value": "?GLOBAL?.Precip-Mean Areal.Total.~1Day~7h.1Day.Metvue-Computed",
+  "comment": "Basin Average precip that is computed from StageIII estimates with the program Basin_rf.exe"
+}

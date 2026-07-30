@@ -1,0 +1,6 @@
+{
+  "office-id": "SWT",
+  "category": "LOCATION TIME SERIES ASSOCIATION",
+  "name": "Regi_project_PRIMARY.Elevation_elevation_pool_raw.%base%",
+  "value": "%base%.Elev.Inst.1Hour.0.Decodes-Raw"
+}

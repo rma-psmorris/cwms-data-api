@@ -17,6 +17,9 @@
 #  SOFTWARE.
 from unittest.mock import MagicMock
 
+import pytest
+
+import cwms
 import location_level
 from config import LocationLevelConfig
 
@@ -44,6 +47,15 @@ def test_stage_location_levels_windowed(mocker):
     assert work_item[4] is False
     assert work_item[2] is not None
     assert work_item[3] is not None
+
+
+def test_location_level_config_requires_a_literal_id():
+    # There is no longer an "id is None, resolve it from a source" path: ids
+    # arrive already resolved, from cda-expander. An entry without one is a
+    # config error caught at parse time rather than something the pipeline
+    # skips at run time.
+    with pytest.raises(KeyError):
+        LocationLevelConfig.from_dict({"por": True})
 
 
 def test_download_one_location_level_por(mocker):
@@ -75,3 +87,60 @@ def test_upload_one_location_level(mocker):
     location_level._upload_one_location_level(["SWT", "SWT.EUFA-Dam.Elev.Inst.0.Top of Flood", None, None, True])
 
     assert mock_store_level.call_count == 2
+
+
+def _api_error(status_code: int, body: str = ""):
+    import requests
+
+    response = requests.Response()
+    response.status_code = status_code
+    response.reason = "Not Found" if status_code == 404 else "Internal Server Error"
+    response.url = "https://cda.test/cwms-data/x"
+    response._content = body.encode()
+
+    return cwms.api.ApiError(response)
+
+
+def test_missing_location_level_is_not_a_failure(mocker, caplog):
+    """
+    Same reasoning as ratings: a resolved level id with no values for this
+    project is expected, not a fault.
+    """
+    import logging
+    caplog.set_level(logging.INFO)
+    mocker.patch("cwms.get_location_levels", side_effect=_api_error(404, '{"message":"Not found."}'))
+    mock_write = mocker.patch("utils.filesystem_store.write_json")
+
+    begin = location_level._parse_timestamp("2026-07-01", "start")
+    end = location_level._parse_timestamp("2026-07-15", "end")
+
+    location_level._download_one_location_level(
+        ["SWT", "EUFA-Dam.Evap-PanCoef.Const.0.Pan Coefficient", begin, end, False]
+    )
+
+    assert "nothing staged" in caplog.text
+    mock_write.assert_not_called()
+
+
+def test_missing_por_location_level_is_not_a_failure(mocker, caplog):
+    import logging
+    caplog.set_level(logging.INFO)
+    mocker.patch("cwms.get_location_levels", side_effect=_api_error(404, '{"message":"Not found."}'))
+    mock_write = mocker.patch("utils.filesystem_store.write_json")
+
+    location_level._download_one_location_level(
+        ["SWT", "EUFA-Dam.Elev.Inst.0.Top of Flood", None, None, True]
+    )
+
+    assert "nothing staged" in caplog.text
+    mock_write.assert_not_called()
+
+
+def test_location_level_server_errors_still_propagate(mocker):
+    mocker.patch("cwms.get_location_levels", side_effect=_api_error(500, '{"message":"Database Error"}'))
+    mocker.patch("utils.filesystem_store.write_json")
+
+    with pytest.raises(cwms.api.ApiError):
+        location_level._download_one_location_level(
+            ["SWT", "EUFA-Dam.Elev.Inst.0.Top of Flood", None, None, True]
+        )

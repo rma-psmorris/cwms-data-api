@@ -1,0 +1,6 @@
+{
+  "office-id": "SWT",
+  "category": "LOCATION TIME SERIES ASSOCIATION",
+  "name": "Regi_lock_PRIMARY.Navigation_lockage_count_1day.%base%",
+  "value": "%base%.Count-Lockages.Total.~1Day~0s.1Day.Rev-Manual"
+}

@@ -79,6 +79,8 @@ def test_download_one_property(mocker):
 
     property._download_one_property(["SWT", "REGI", "EUFA.ETL.FLAG"])
 
+    # The single-property GET takes "office" / "category-id" (not the *-mask
+    # parameters the listing endpoint uses).
     mock_get.assert_called_once_with(
         endpoint="properties/EUFA.ETL.FLAG",
         params={
@@ -127,8 +129,8 @@ def test_download_all_properties_in_category(mocker):
     mock_get.assert_called_once_with(
         endpoint="properties",
         params={
-            "office": "SWT",
-            "category-id": "REGI",
+            "office-mask": "SWT",
+            "category-id-mask": "REGI",
         },
         api_version=1,
     )
@@ -204,3 +206,25 @@ def test_iter_property_entries_handles_object_wrapped_response():
     response = {"properties": [{"name": "A"}, {"name": "B"}]}
 
     assert property._iter_property_entries(response) == [{"name": "A"}, {"name": "B"}]
+
+
+def test_download_all_in_category_uses_mask_parameters(mocker):
+    """
+    CDA's PropertyController.getAll filters on OFFICE_MASK / CATEGORY_ID_MASK /
+    NAME_MASK. Sending the single-property GET's "office" / "category-id"
+    instead leaves the masks null and the listing returns nothing at all, so an
+    "all: true" category silently stages zero properties.
+    """
+    mock_get = mocker.patch("cwms.api.get", return_value=[])
+    mocker.patch("utils.filesystem_store.write_json")
+
+    property._download_all_properties_in_category(["SWT", "LOCATION TIME SERIES ASSOCIATION"])
+
+    mock_get.assert_called_once_with(
+        endpoint="properties",
+        params={
+            "office-mask": "SWT",
+            "category-id-mask": "LOCATION TIME SERIES ASSOCIATION",
+        },
+        api_version=1,
+    )

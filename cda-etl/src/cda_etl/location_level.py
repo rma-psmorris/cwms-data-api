@@ -21,6 +21,7 @@ from typing import Iterable
 
 import cwms
 import utils.filesystem_store as filesystem_store
+import utils.cda_errors as cda_errors
 import utils.threading_util as threading_util
 from config import LocationLevelConfig
 
@@ -35,7 +36,9 @@ def stage_location_levels(
     default_start: str | None,
     default_end: str | None,
 ) -> None:
-    work_items = _build_location_level_work_items(office_id, levels, default_start, default_end)
+    work_items = _build_location_level_work_items(
+        office_id, levels, default_start, default_end
+    )
     if not work_items:
         logger.warning("No valid location level items found for office %s", office_id)
         return
@@ -51,7 +54,9 @@ def publish_staged_location_levels(
     default_start: str | None,
     default_end: str | None,
 ) -> None:
-    work_items = _build_location_level_work_items(office_id, levels, default_start, default_end)
+    work_items = _build_location_level_work_items(
+        office_id, levels, default_start, default_end
+    )
     if not work_items:
         logger.warning("No valid location level items found for office %s", office_id)
         return
@@ -70,7 +75,19 @@ def _download_one_location_level(work_item: list[object]) -> None:
 
     if por:
         logger.info("Refreshing staged location levels (POR) for %s in office %s", level_id, office_id)
-        level_data = cwms.get_location_levels(level_id_mask=level_id, office_id=office_id).json
+        try:
+            level_data = cwms.get_location_levels(level_id_mask=level_id, office_id=office_id).json
+        except Exception as error:
+            if not cda_errors.is_no_data(error):
+                raise
+
+            logger.info(
+                "No location level values for %s in office %s; nothing staged.",
+                level_id,
+                office_id,
+            )
+            return
+
         filesystem_store.write_json(level_data, office_id, LEVELS_FOLDER, f"{level_id}.por")
         return
 
@@ -84,12 +101,28 @@ def _download_one_location_level(work_item: list[object]) -> None:
         end_str,
     )
 
-    level_data = cwms.get_location_levels(
-        level_id_mask=level_id,
-        office_id=office_id,
-        begin=begin,
-        end=end,
-    ).json
+    try:
+        level_data = cwms.get_location_levels(
+            level_id_mask=level_id,
+            office_id=office_id,
+            begin=begin,
+            end=end,
+        ).json
+    except Exception as error:
+        if not cda_errors.is_no_data(error):
+            raise
+
+        # A resolved level id that this project has no values for is ordinary,
+        # not a fault. Staging nothing means publish skips it.
+        logger.info(
+            "No location level values for %s in office %s between %s and %s; nothing staged.",
+            level_id,
+            office_id,
+            begin_str,
+            end_str,
+        )
+        return
+
     filesystem_store.write_json(level_data, office_id, LEVELS_FOLDER, level_id)
 
 
@@ -105,8 +138,7 @@ def _upload_one_location_level(work_item: list[object]) -> None:
     )
     if staged_data is None:
         raise FileNotFoundError(
-            f"No staged location level data found for {office_id}.{level_id}. "
-            "Location level publish skipped for this item."
+            "No staged location level data found."
         )
 
     levels = staged_data.get("levels", []) if isinstance(staged_data, dict) else []
@@ -127,13 +159,11 @@ def _build_location_level_work_items(
     work_items: list[list[object]] = []
 
     for level in levels:
-        if not level.id:
-            continue
-
+        level_id = level.id
         por = level.period_of_record
         begin = None if por else _parse_timestamp(level.start_time or default_start, "start")
         end = None if por else _parse_timestamp(level.end_time or default_end, "end")
-        work_items.append([office_id, level.id, begin, end, por])
+        work_items.append([office_id, level_id, begin, end, por])
 
     return work_items
 

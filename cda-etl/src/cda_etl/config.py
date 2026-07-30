@@ -462,6 +462,17 @@ def _validate_locations(office_id: str, project_id: str, locations: Any) -> None
             raise ValueError(f"Each location under project {office_id}.{project_id} must have an id.")
 
 
+def _validate_literal_id_item(
+    kind: str, office_id: str, project_id: str, item: dict[str, Any]
+) -> None:
+    """
+    Shared validation for any per-project config item (timeseries, rating,
+    location level, ...). Every such item carries a literal id.
+    """
+    if not item.get("id"):
+        raise ValueError(f"Each {kind} under project {office_id}.{project_id} must have an id.")
+
+
 def _validate_timeseries_items(office_id: str, project_id: str, timeseries_items: Any) -> None:
     if not isinstance(timeseries_items, list):
         raise ValueError(f"Timeseries must be a list for project {office_id}.{project_id}.")
@@ -472,8 +483,7 @@ def _validate_timeseries_items(office_id: str, project_id: str, timeseries_items
                 f"Each timeseries under project {office_id}.{project_id} must be a mapping/object."
             )
 
-        if not timeseries.get("id"):
-            raise ValueError(f"Each timeseries under project {office_id}.{project_id} must have an id.")
+        _validate_literal_id_item("timeseries", office_id, project_id, timeseries)
 
 
 def _validate_clob_items(office_id: str, project_id: str, clobs: Any) -> None:
@@ -498,8 +508,7 @@ def _validate_location_level_items(office_id: str, project_id: str, levels: Any)
                 f"Each location level under project {office_id}.{project_id} must be a mapping/object."
             )
 
-        if not level.get("id"):
-            raise ValueError(f"Each location level under project {office_id}.{project_id} must have an id.")
+        _validate_literal_id_item("location level", office_id, project_id, level)
 
 
 def _validate_rating_items(office_id: str, project_id: str, ratings: Any) -> None:
@@ -510,8 +519,7 @@ def _validate_rating_items(office_id: str, project_id: str, ratings: Any) -> Non
         if not isinstance(rating, dict):
             raise ValueError(f"Each rating under project {office_id}.{project_id} must be a mapping/object.")
 
-        if not rating.get("id"):
-            raise ValueError(f"Each rating under project {office_id}.{project_id} must have an id.")
+        _validate_literal_id_item("rating", office_id, project_id, rating)
 
 
 def _validate_property_items(office_id: str, project_id: str, properties: Any) -> None:

@@ -16,17 +16,89 @@
 #  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 #  SOFTWARE.
 import logging
+import threading
 from datetime import datetime
 from typing import Iterable, Any
 
 import cwms
 import utils.filesystem_store as filesystem_store
+import utils.cda_errors as cda_errors
 import utils.threading_util as threading_util
 from config import RatingConfig
 
 logger = logging.getLogger(__name__)
 DATE_TIME_FORMAT = "%Y-%m-%d %H.%M.%S"
 RATINGS_FOLDER = "Ratings"
+
+_AMBIGUOUS_LOCK = threading.Lock()
+_AMBIGUOUS_COUNT: list[int] = []
+
+
+# Counts the ratings skipped in the current batch because the values endpoint
+# answered 500-that-means-404 (see cda_errors.is_ambiguous_rating_failure).
+# Every project genuinely lacking a rating curve is plausible; *all* of them
+# failing this way is far more likely an unwell instance, and that distinction
+# is worth surfacing since the 500 itself cannot make it.
+def _reset_ambiguous_skips() -> None:
+    with _AMBIGUOUS_LOCK:
+        _AMBIGUOUS_COUNT.clear()
+
+
+def _record_ambiguous_skip() -> None:
+    with _AMBIGUOUS_LOCK:
+        _AMBIGUOUS_COUNT.append(1)
+
+
+def _ambiguous_skip_count() -> int:
+    with _AMBIGUOUS_LOCK:
+        return len(_AMBIGUOUS_COUNT)
+
+
+def _warn_if_every_rating_was_ambiguous(office_id: str, attempted: int) -> None:
+    """
+    Every project genuinely lacking a rating curve is plausible. Every rating in
+    a batch failing with the ambiguous 500 is far more likely a sick instance,
+    and because that 500 is indistinguishable from "missing" the run would
+    otherwise report success having staged nothing.
+    """
+    skipped = _ambiguous_skip_count()
+
+    if attempted > 1 and skipped == attempted:
+        logger.warning(
+            "All %d rating(s) for office %s were skipped on the ambiguous 500 from the ratings "
+            "values endpoint. That pattern is more consistent with the service being unwell than "
+            "with every rating genuinely being absent - check CDA before trusting this run's "
+            "rating output.",
+            attempted,
+            office_id,
+        )
+
+
+def _handle_missing_rating(error: Exception, rating_id: str, office_id: str, window: str) -> bool:
+    """
+    Returns True if this failure means "no rating curve here" and the item should
+    be skipped. Re-raise otherwise.
+    """
+    if cda_errors.is_no_data(error):
+        logger.info("No rating curve for %s in office %s%s; nothing staged.", rating_id, office_id, window)
+        return True
+
+    if cda_errors.is_ambiguous_rating_failure(error):
+        _record_ambiguous_skip()
+        # WARNING, not INFO: unlike a true 404 this is inferred from a 500 that
+        # CDA also uses for real processing failures.
+        logger.warning(
+            "Treating a 500 from the ratings values endpoint as \"no rating curve\" for %s in "
+            "office %s%s; nothing staged. CDA returns 500 rather than 404 for a missing rating "
+            "(RatingController maps RatingException to 500), so this could also be a genuine "
+            "processing failure.",
+            rating_id,
+            office_id,
+            window,
+        )
+        return True
+
+    return False
 
 
 def stage_ratings(
@@ -41,7 +113,9 @@ def stage_ratings(
         return
 
     logger.info("Staging %d rating item(s) for office %s", len(work_items), office_id)
+    _reset_ambiguous_skips()
     threading_util.execute_tasks(_download_one_rating, work_items)
+    _warn_if_every_rating_was_ambiguous(office_id, len(work_items))
     logger.info("Completed staging ratings for office %s", office_id)
 
 
@@ -70,7 +144,14 @@ def _download_one_rating(work_item: list[object]) -> None:
 
     if por:
         logger.info("Refreshing staged rating XML (POR) for %s in office %s", rating_id, office_id)
-        rating_xml = cwms.get_ratings_xml(rating_id, office_id)
+        try:
+            rating_xml = cwms.get_ratings_xml(rating_id, office_id)
+        except Exception as error:
+            if not _handle_missing_rating(error, rating_id, office_id, ""):
+                raise
+
+            return
+
         filesystem_store.write_json(_xml_to_json_payload(rating_xml), office_id, RATINGS_FOLDER, f"{rating_id}.por")
         return
 
@@ -83,7 +164,18 @@ def _download_one_rating(work_item: list[object]) -> None:
         begin_str,
         end_str,
     )
-    rating_xml = cwms.get_ratings_xml(rating_id, office_id, begin=begin, end=end)
+    try:
+        rating_xml = cwms.get_ratings_xml(rating_id, office_id, begin=begin, end=end)
+    except Exception as error:
+        # A resolved rating id that this project has no curve for is ordinary,
+        # not a fault. Staging nothing means publish skips it.
+        if not _handle_missing_rating(
+            error, rating_id, office_id, f" between {begin_str} and {end_str}"
+        ):
+            raise
+
+        return
+
     filesystem_store.write_json(_xml_to_json_payload(rating_xml), office_id, RATINGS_FOLDER, rating_id)
 
 
@@ -99,15 +191,25 @@ def _upload_one_rating(work_item: list[object]) -> None:
     )
     if staged_data is None:
         raise FileNotFoundError(
-            f"No staged rating data found for {office_id}.{rating_id}. "
-            "Rating publish skipped for this item."
+            "No staged rating data found."
         )
 
     rating_xml = staged_data.get("xml") if isinstance(staged_data, dict) else None
     if not rating_xml:
         raise ValueError(f"Staged rating data for {office_id}.{rating_id} is missing XML payload.")
 
-    cwms.store_rating(rating_xml, store_template=False)
+    # store_template must be True. With False, CDA strips the <rating-template>
+    # element out of the XML before storing (RatingController.removeTemplate),
+    # so the POST carries a rating-spec referencing a template that is not
+    # present. A destination that has never seen that template cannot resolve
+    # the reference and answers 500 "Database Error".
+    #
+    # The staged XML holds template, spec and values together, and for a tool
+    # whose job is to mirror the source, the template is part of the rating's
+    # definition rather than something to drop. True is also cwms-python's
+    # default and CDA's ("Also store updates to the rating template. Default:
+    # true"); this was the one place the pipeline opted out of it.
+    cwms.store_rating(rating_xml, store_template=True)
 
 
 def _xml_to_json_payload(xml_value: Any) -> dict[str, str]:
@@ -126,13 +228,11 @@ def _build_rating_work_items(
     work_items: list[list[object]] = []
 
     for rating in ratings:
-        if not rating.id:
-            continue
-
+        rating_id = rating.id
         por = rating.period_of_record
         begin = None if por else _parse_timestamp(rating.start_time or default_start, "start")
         end = None if por else _parse_timestamp(rating.end_time or default_end, "end")
-        work_items.append([office_id, rating.id, begin, end, por])
+        work_items.append([office_id, rating_id, begin, end, por])
 
     return work_items
 

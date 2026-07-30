@@ -108,11 +108,17 @@ def _download_all_properties_in_category(work_item: list[str]) -> None:
     office_id, category_id = work_item
 
     logger.info("Refreshing all staged properties for category %s in office %s", category_id, office_id)
+    # The list endpoint takes *-mask parameters (see CDA's
+    # PropertyController.getAll: OFFICE_MASK / CATEGORY_ID_MASK / NAME_MASK).
+    # "office" and "category-id" belong to the single-property GET; passing
+    # those here leaves every mask null and the listing returns nothing at all
+    # rather than failing, so an "all: true" category silently stages zero
+    # properties.
     category_response = cwms.api.get(
         endpoint="properties",
         params={
-            "office": office_id,
-            "category-id": category_id,
+            "office-mask": office_id,
+            "category-id-mask": category_id,
         },
         api_version=1,
     )
@@ -146,8 +152,7 @@ def _upload_one_property(work_item: list[str]) -> None:
     property_data = filesystem_store.read_json(office_id, PROPERTIES_FOLDER, category_id, property_id)
     if property_data is None:
         raise FileNotFoundError(
-            f"No staged property data found for {office_id}.{category_id}.{property_id}. "
-            "Property publish skipped for this item."
+            "No staged property data found."
         )
 
     try:

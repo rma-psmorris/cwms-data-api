@@ -70,8 +70,7 @@ def _upload_one_project(project):
     project_data = filesystem_store.read_json(office_id, "Projects", project_id)
     if project_data is None:
         raise FileNotFoundError(
-            f"No staged project data found for {office_id}.{project_id}. "
-            "Project publish skipped for this item."
+            "No staged project data found."
         )
 
     cwms.api.post(

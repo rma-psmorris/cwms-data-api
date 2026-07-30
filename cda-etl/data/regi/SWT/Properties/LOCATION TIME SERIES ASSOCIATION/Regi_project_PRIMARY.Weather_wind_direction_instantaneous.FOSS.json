@@ -1,0 +1,7 @@
+{
+  "office-id": "SWT",
+  "category": "LOCATION TIME SERIES ASSOCIATION",
+  "name": "Regi_project_PRIMARY.Weather_wind_direction_instantaneous.FOSS",
+  "value": "FOSS.Dir-Wind.Inst.1Hour.0.Decodes-Raw",
+  "comment": "Description for: Weather_wind_direction_instantaneous"
+}

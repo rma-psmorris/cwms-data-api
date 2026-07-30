@@ -19,6 +19,8 @@ import sys
 import logging
 import os
 import re
+from contextlib import contextmanager
+from typing import Iterator
 import location
 import location_level
 import project
@@ -26,6 +28,7 @@ import property
 import rating
 import timeseries
 import clob
+import utils.cwms_compat
 import utils.threading_util
 import utils.filesystem_store
 from config import DownloadConfig, OfficeConfig, ProjectConfig
@@ -49,13 +52,53 @@ def _read_env(name: str, default: str) -> str:
     return normalized
 
 
+# Which half of the pipeline is running, for log messages that would otherwise
+# be ambiguous about direction. cwms-python's chunk-retry warning comes from
+# _call_with_retry, which is shared by its fetch *and* store paths, so the
+# message alone cannot say whether a failing chunk was a read from the source or
+# a write to the destination.
+_STAGE = "staging (reading from the source)"
+_PUBLISH = "publishing (writing to the destination)"
+_current_phase: str | None = None
+
+
+@contextmanager
+def _phase(name: str) -> Iterator[None]:
+    global _current_phase
+    previous = _current_phase
+    _current_phase = name
+    try:
+        yield
+    finally:
+        _current_phase = previous
+
+
 class _FriendlyCdaLogFilter(logging.Filter):
     def filter(self, record: logging.LogRecord) -> bool:
         message = record.getMessage()
 
         if "CDA Error: response=" in message:
+            # cwms.api logs this at ERROR on the root logger for any non-ok
+            # response, before raising. The wording below is ours; the severity
+            # was not, which meant one not-found produced an INFO line from the
+            # caller and an ERROR line from here for the same event.
             match = _RESPONSE_STATUS_PATTERN.search(message)
             status_code = match.group(1) if match else "unknown"
+
+            if status_code == "404":
+                # Not-found is a modelled outcome throughout cda-etl: a
+                # timeseries with no values in the window, a rating or location
+                # level a project does not have. The caller decides, and either
+                # skips it or lets it abort the run.
+                record.levelno = logging.INFO
+                record.levelname = "INFO"
+                record.msg = (
+                    "CWMS API request returned HTTP 404 (nothing found). Whether that matters "
+                    "is decided by the caller; see the next log line for the endpoint."
+                )
+                record.args = ()
+                return True
+
             record.msg = (
                 "CWMS API request returned HTTP %s. "
                 "See the next log line for endpoint and server details."
@@ -63,12 +106,33 @@ class _FriendlyCdaLogFilter(logging.Filter):
             record.args = (status_code,)
             return True
 
-        if message.startswith("chunk attempt") and "CWMS API Error" in message:
+        # cwms-python's fetch_timeseries_chunks logs at ERROR before raising, so
+        # a 404 - "no values in this window" - arrives as "Failed to fetch data",
+        # which reads like a fault. timeseries._download_one_ts_data treats that
+        # case as normal and stages nothing, so soften the log to match. The
+        # hint string is only produced for 404.
+        if message.startswith("Failed to fetch data") and (
+            "May be the result of an empty query." in message
+            or '"message":"Not found."' in message
+        ):
+            record.levelno = logging.INFO
+            record.levelname = "INFO"
             record.msg = (
-                "Timeseries upload chunk failed and will be retried. "
-                "Details: %s"
+                "No values in this window (CDA answered 404); nothing staged for it. Details: %s"
             )
             record.args = (message,)
+            return True
+
+        if message.startswith("chunk attempt") and "CWMS API Error" in message:
+            # Do not guess the direction. This warning previously said "upload"
+            # unconditionally, which sent people looking at DEST_CDA_URL for
+            # what was actually a failed read from the source.
+            phase = _current_phase or "an unknown phase"
+            record.msg = (
+                "Timeseries chunk failed during %s and will be retried. "
+                "The URL in the details below is the one that failed. Details: %s"
+            )
+            record.args = (phase, message)
             return True
 
         return True
@@ -76,7 +140,7 @@ class _FriendlyCdaLogFilter(logging.Filter):
 
 def pipeline(config: DownloadConfig, session_manager: SessionManager) -> None:
     if session_manager.has_source_session:
-        with session_manager.source_session():
+        with session_manager.source_session(), _phase(_STAGE):
             for office in config.offices(enabled_only=True):
                 logger.info(f"Processing office {office.id}")
 
@@ -87,7 +151,7 @@ def pipeline(config: DownloadConfig, session_manager: SessionManager) -> None:
     else:
         logger.info("SOURCE_CDA_URL is not configured; skipping source download and using staged files only.")
 
-    with session_manager.dest_session():
+    with session_manager.dest_session(), _phase(_PUBLISH):
         for office in config.offices(enabled_only=True):
             logger.info(f"Publishing office {office.id}")
 
@@ -242,11 +306,26 @@ def _publish_project_data(project_config: ProjectConfig, config: DownloadConfig)
 
 
 def _initialize_runtime():
-    config_path = _read_env("REGI_CONFIG_PATH", "regi.yml")
+    # Defaults to the expander's output. Ids that an application derives from
+    # CWMS association properties (or, later, PublishedTimeSeries/A2W) are
+    # resolved into literal ids by cda-expander before this runs; cda-etl only
+    # ever reads literal ids. See docs/id-resolution-work-plan.md.
+    # A 404 means "no values in that window" and will still be 404 on the sixth
+    # attempt, so stop cwms-python retrying it. See utils/cwms_compat.py.
+    utils.cwms_compat.disable_retry_on_missing_data()
+
+    config_path = _read_env("REGI_CONFIG_PATH", "regi.generated.yml")
     config = DownloadConfig.from_yaml(config_path)
     session_manager = SessionManager.from_env()
     utils.threading_util.init_executor(config.settings.max_threads)
-    utils.filesystem_store.set_storage_root(config.settings.path)
+
+    # settings.path in a committed config is written for the container, where
+    # compose mounts ./cda-etl/data/regi at /data/regi. Running outside the
+    # container that absolute path resolves against the current drive instead
+    # (C:\data\regi on Windows), so allow an override rather than making a local
+    # run require editing - and then reverting - committed config.
+    storage_root = _read_env("REGI_DATA_PATH", config.settings.path)
+    utils.filesystem_store.set_storage_root(storage_root)
 
     config_log_level = getattr(logging, config.settings.log_level.upper(), logging.INFO)
     logging.getLogger().setLevel(config_log_level)

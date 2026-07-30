@@ -19,6 +19,7 @@ import logging
 from datetime import datetime
 from typing import Iterable
 
+import utils.cda_errors as cda_errors
 import utils.threading_util as threading_util
 import utils.filesystem_store as filesystem_store
 import cwms
@@ -27,6 +28,20 @@ from config import TimeseriesConfig
 logger = logging.getLogger(__name__)
 DATE_TIME_FORMAT = "%Y-%m-%d %H.%M.%S"
 TIMESERIES_FOLDER = "Timeseries"
+
+
+def _value_count(data: object) -> int | None:
+    """
+    Number of values in a timeseries payload, or None if it does not look like
+    one. CDA answers 200 with "values": [] for an id that exists but has nothing
+    in the window - distinct from the 404 it gives when there is no data at all.
+    """
+    if not isinstance(data, dict) or "values" not in data:
+        return None
+
+    values = data.get("values")
+
+    return len(values) if isinstance(values, (list, tuple)) else None
 
 
 def stage_timeseries(
@@ -69,7 +84,38 @@ def _download_one_ts_data(ts_info):
     begin_str = begin.strftime(DATE_TIME_FORMAT)
     end_str = end.strftime(DATE_TIME_FORMAT)
     logger.info("Refreshing staged timeseries %s for office %s from %s to %s", ts_id, office_id, begin_str, end_str)
-    data = cwms.get_timeseries(ts_id, office_id, begin=begin, end=end).json
+
+    try:
+        data = cwms.get_timeseries(ts_id, office_id, begin=begin, end=end).json
+    except Exception as error:
+        if not cda_errors.is_no_data(error):
+            raise
+
+        # Nothing is staged, so a later publish of this window finds no file and
+        # skips it - which is the correct outcome for a timeseries that has no
+        # values here.
+        logger.info(
+            "No values for timeseries %s in office %s between %s and %s; nothing staged.",
+            ts_id,
+            office_id,
+            begin_str,
+            end_str,
+        )
+        return
+
+    if _value_count(data) == 0:
+        # 200 with an empty "values" list: the id exists, the window is empty.
+        # Nothing to stage, and nothing to publish later either - see
+        # _upload_one_ts_data for why an empty payload is not merely useless.
+        logger.info(
+            "Timeseries %s in office %s returned no values between %s and %s; nothing staged.",
+            ts_id,
+            office_id,
+            begin_str,
+            end_str,
+        )
+        return
+
     filesystem_store.write_json(data, office_id, TIMESERIES_FOLDER, ts_id, begin_str, end_str, "data")
 
 
@@ -85,9 +131,25 @@ def _upload_one_ts_data(ts_info):
     staged_data = filesystem_store.read_json(office_id, TIMESERIES_FOLDER, ts_id, begin_str, end_str, "data")
     if staged_data is None:
         raise FileNotFoundError(
-            f"No staged timeseries data found for {office_id}.{ts_id} "
-            f"for window {begin_str} to {end_str}. Timeseries data publish skipped for this item."
+            "No staged timeseries data found for this window."
         )
+
+    if _value_count(staged_data) == 0:
+        # Posting an empty payload achieves nothing, and cwms-python cannot even
+        # do it: store_timeseries guards with "len(chunks) == 1" before computing
+        # min(max_workers, len(chunks)), so zero values gives zero chunks and
+        # ThreadPoolExecutor(max_workers=0) raises "max_workers must be greater
+        # than 0". Its fetch path clamps with max(..., 1); the store path does
+        # not. Staging skips empties now, but files written before that change -
+        # or by an older build - are still on disk.
+        logger.info(
+            "Staged timeseries %s in office %s for %s to %s holds no values; nothing to publish.",
+            ts_id,
+            office_id,
+            begin_str,
+            end_str,
+        )
+        return
 
     cwms.store_timeseries(staged_data)
 
@@ -141,4 +203,6 @@ def _parse_timestamp(value: str | None, label: str) -> datetime:
             return datetime.strptime(normalized, "%Y-%m-%d")
         except ValueError:
             raise ValueError(f"Invalid {label} time '{value}'. Use ISO-8601 or YYYY-MM-DD.") from exc
+
+
 __all__ = ["publish_staged_timeseries", "stage_timeseries"]

@@ -27,6 +27,23 @@ logger = logging.getLogger(__name__)
 CLOBS_FOLDER = "Clobs"
 
 
+def _has_publishable_value(data: object) -> bool:
+    """
+    Whether a clob payload carries a value CDA will accept on store.
+
+    Clob.validate() requires office-id, id and value, and CwmsDTOValidator's
+    required() rejects only null - so an empty string is publishable but an
+    absent or null value is not. A clob whose value is null comes back from the
+    GET with the key omitted entirely, which then fails the POST with
+    400 "required fields not present" / "missing fields": "value".
+    """
+    if not isinstance(data, dict):
+        # An unfamiliar shape is passed through rather than silently dropped.
+        return True
+
+    return data.get("value") is not None
+
+
 def stage_clobs(office_id: str, clobs: Iterable[ClobConfig]) -> None:
     clobs = list(clobs)
     work_items = [[office_id, clob.id] for clob in clobs if clob.id]
@@ -57,6 +74,15 @@ def _download_one_clob(work_item: list[str]) -> None:
     office_id, clob_id = work_item
     logger.info("Refreshing staged clob %s for office %s", clob_id, office_id)
     clob_data = cwms.get_clob(clob_id, office_id).json
+
+    if not _has_publishable_value(clob_data):
+        # The clob exists but holds no text. Staging it would only give the
+        # publish phase something CDA is guaranteed to reject.
+        logger.info(
+            "Clob %s in office %s has no value; nothing staged.", clob_id, office_id
+        )
+        return
+
     filesystem_store.write_json(clob_data, office_id, CLOBS_FOLDER, clob_id)
 
 
@@ -67,9 +93,18 @@ def _upload_one_clob(work_item: list[str]) -> None:
     clob_data = filesystem_store.read_json(office_id, CLOBS_FOLDER, clob_id)
     if clob_data is None:
         raise FileNotFoundError(
-            f"No staged clob data found for {office_id}.{clob_id}. "
-            "Clob publish skipped for this item."
+            "No staged clob data found."
         )
+
+    if not _has_publishable_value(clob_data):
+        # CDA's own Clob.validate() requires a non-null value, so this would come
+        # back 400 "required fields not present" / "missing fields": "value".
+        # Staging skips these now, but files written before that change - or by an
+        # older build - are still on disk.
+        logger.info(
+            "Staged clob %s in office %s has no value; nothing to publish.", clob_id, office_id
+        )
+        return
 
     cwms.store_clobs(clob_data, fail_if_exists=False)
 

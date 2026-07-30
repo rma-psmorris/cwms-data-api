@@ -1,0 +1,6 @@
+{
+  "office-id": "SWT",
+  "category": "LOCATION TIME SERIES ASSOCIATION",
+  "name": "Regi_project_PRIMARY.Hourly_basin_average.%base%",
+  "value": "%base%.Precip-Mean Areal.Total.~1Day~7h.1Day.Metvue-Computed"
+}

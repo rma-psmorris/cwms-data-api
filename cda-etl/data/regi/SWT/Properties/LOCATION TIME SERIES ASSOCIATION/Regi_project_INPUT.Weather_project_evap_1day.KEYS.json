@@ -1,0 +1,7 @@
+{
+  "office-id": "SWT",
+  "category": "LOCATION TIME SERIES ASSOCIATION",
+  "name": "Regi_project_INPUT.Weather_project_evap_1day.KEYS",
+  "value": "KEYS.Evap.Total.~1Day~7h.1Day.Ccp-Rev",
+  "comment": "Description for: Weather_project_evap_1day"
+}

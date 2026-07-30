@@ -107,8 +107,7 @@ def _upload_one_location(location):
     location_data = filesystem_store.read_json(office_id, "Locations", location_id)
     if location_data is None:
         raise FileNotFoundError(
-            f"No staged location data found for {office_id} {location_id}. "
-            "Location publish skipped for this item."
+            "No staged location data found."
         )
 
     cwms.store_location(location_data, False)

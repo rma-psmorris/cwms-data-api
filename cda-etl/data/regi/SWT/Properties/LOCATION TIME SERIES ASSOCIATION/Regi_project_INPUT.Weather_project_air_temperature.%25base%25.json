@@ -1,0 +1,6 @@
+{
+  "office-id": "SWT",
+  "category": "LOCATION TIME SERIES ASSOCIATION",
+  "name": "Regi_project_INPUT.Weather_project_air_temperature.%base%",
+  "value": "%base%.Temp-Air.Inst.1Hour.0.Decodes-Raw"
+}

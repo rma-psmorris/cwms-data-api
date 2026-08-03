@@ -129,8 +129,8 @@ def test_publish_project_data_passes_project_items_through(mocker):
 
 
 def test_data_path_defaults_to_the_config_setting(mocker, monkeypatch):
-    monkeypatch.delenv("REGI_DATA_PATH", raising=False)
-    monkeypatch.setenv("REGI_CONFIG_PATH", str(
+    monkeypatch.delenv("APP_DATA_PATH", raising=False)
+    monkeypatch.setenv("APP_CONFIG_PATH", str(
         __import__("pathlib").Path(__file__).resolve().parents[1] / "resources" / "download_config_valid.yml"))
     monkeypatch.setenv("DEST_CDA_URL", "http://dest.test/cwms-data")
     mock_root = mocker.patch("utils.filesystem_store.set_storage_root")
@@ -144,11 +144,11 @@ def test_data_path_defaults_to_the_config_setting(mocker, monkeypatch):
 def test_data_path_env_overrides_the_config_setting(mocker, monkeypatch):
     """
     A committed settings.path is written for the container (compose mounts
-    ./cda-etl/data/regi at /data/regi). A local run needs to point elsewhere
+    ./cda-etl/data/sample-app at /data/sample-app). A local run needs to point elsewhere
     without editing committed config.
     """
-    monkeypatch.setenv("REGI_DATA_PATH", "./data/regi")
-    monkeypatch.setenv("REGI_CONFIG_PATH", str(
+    monkeypatch.setenv("APP_DATA_PATH", "./data/sample-app")
+    monkeypatch.setenv("APP_CONFIG_PATH", str(
         __import__("pathlib").Path(__file__).resolve().parents[1] / "resources" / "download_config_valid.yml"))
     monkeypatch.setenv("DEST_CDA_URL", "http://dest.test/cwms-data")
     mock_root = mocker.patch("utils.filesystem_store.set_storage_root")
@@ -156,7 +156,7 @@ def test_data_path_env_overrides_the_config_setting(mocker, monkeypatch):
 
     main._initialize_runtime()
 
-    mock_root.assert_called_once_with("./data/regi")
+    mock_root.assert_called_once_with("./data/sample-app")
 
 
 def _chunk_record() -> "logging.LogRecord":

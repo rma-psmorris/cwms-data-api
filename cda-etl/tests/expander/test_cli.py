@@ -51,8 +51,8 @@ templates:
 
 @pytest.fixture
 def inputs(tmp_path) -> tuple[Path, Path]:
-    base = tmp_path / "regi.yml"
-    templates = tmp_path / "regi.templates.yml"
+    base = tmp_path / "sample-app.yml"
+    templates = tmp_path / "sample-app.templates.yml"
     base.write_text(BASE, encoding="utf-8")
     templates.write_text(TEMPLATES, encoding="utf-8")
 
@@ -87,7 +87,7 @@ def _run(inputs, out_path, *extra):
 
 
 def test_main_appends_resolved_ids_to_the_base(stub_environment, inputs, tmp_path):
-    out_path = tmp_path / "regi.generated.yml"
+    out_path = tmp_path / "sample-app.generated.yml"
 
     assert _run(inputs, out_path) == cli.EXIT_OK
 
@@ -100,7 +100,7 @@ def test_main_appends_resolved_ids_to_the_base(stub_environment, inputs, tmp_pat
 
 
 def test_base_settings_pass_through(stub_environment, inputs, tmp_path):
-    out_path = tmp_path / "regi.generated.yml"
+    out_path = tmp_path / "sample-app.generated.yml"
     _run(inputs, out_path)
 
     generated = yaml.safe_load(out_path.read_text(encoding="utf-8"))
@@ -110,20 +110,20 @@ def test_base_settings_pass_through(stub_environment, inputs, tmp_path):
 
 
 def test_generated_config_carries_do_not_edit_banner(stub_environment, inputs, tmp_path):
-    out_path = tmp_path / "regi.generated.yml"
+    out_path = tmp_path / "sample-app.generated.yml"
     _run(inputs, out_path)
 
     assert cli.GENERATED_BANNER in out_path.read_text(encoding="utf-8")
 
 
 def test_generated_config_records_both_inputs(stub_environment, inputs, tmp_path):
-    out_path = tmp_path / "regi.generated.yml"
+    out_path = tmp_path / "sample-app.generated.yml"
     _run(inputs, out_path)
 
     text = out_path.read_text(encoding="utf-8")
 
-    assert "base config      : regi.yml" in text
-    assert "templates        : regi.templates.yml" in text
+    assert "base config      : sample-app.yml" in text
+    assert "templates        : sample-app.templates.yml" in text
     assert "base sha256" in text
     assert "templates sha256" in text
 
@@ -144,14 +144,14 @@ def test_output_is_byte_identical_across_runs(stub_environment, inputs, tmp_path
 
 
 def test_check_passes_when_file_is_current(stub_environment, inputs, tmp_path):
-    out_path = tmp_path / "regi.generated.yml"
+    out_path = tmp_path / "sample-app.generated.yml"
     _run(inputs, out_path)
 
     assert _run(inputs, out_path, "--check") == cli.EXIT_OK
 
 
 def test_check_fails_when_file_was_hand_edited(stub_environment, inputs, tmp_path):
-    out_path = tmp_path / "regi.generated.yml"
+    out_path = tmp_path / "sample-app.generated.yml"
     _run(inputs, out_path)
 
     out_path.write_text(
@@ -165,7 +165,7 @@ def test_check_fails_when_file_was_hand_edited(stub_environment, inputs, tmp_pat
 
 
 def test_check_fails_when_resolution_changed(mocker, stub_environment, inputs, tmp_path):
-    out_path = tmp_path / "regi.generated.yml"
+    out_path = tmp_path / "sample-app.generated.yml"
     _run(inputs, out_path)
 
     # Simulate the underlying association property changing between runs.
@@ -178,7 +178,7 @@ def test_check_fails_when_resolution_changed(mocker, stub_environment, inputs, t
 
 
 def test_check_fails_when_the_base_changed(stub_environment, inputs, tmp_path):
-    out_path = tmp_path / "regi.generated.yml"
+    out_path = tmp_path / "sample-app.generated.yml"
     _run(inputs, out_path)
 
     base, _ = inputs
@@ -194,7 +194,7 @@ def test_check_fails_when_the_base_changed(stub_environment, inputs, tmp_path):
 
 
 def test_check_does_not_write(stub_environment, inputs, tmp_path):
-    out_path = tmp_path / "regi.generated.yml"
+    out_path = tmp_path / "sample-app.generated.yml"
     out_path.write_text("stale: true\n", encoding="utf-8")
 
     _run(inputs, out_path, "--check")

@@ -20,11 +20,11 @@ Appends every id an association property category yields to a literal-id config.
 
 Two inputs, one output
 ----------------------
-**Base config** (``regi.yml``) - an ordinary cda-etl config. Hand-edited,
+**Base config** (``sample-app.yml``) - an ordinary cda-etl config. Hand-edited,
 literal ids only, valid and runnable on its own. The expander never removes or
 rewrites anything in it; it only appends.
 
-**Templates** (``regi.templates.yml``) - one entry per category, and nothing
+**Templates** (``sample-app.templates.yml``) - one entry per category, and nothing
 else::
 
     version: 1
@@ -40,7 +40,7 @@ else::
         entry:
           por: true
 
-**Output** (``regi.generated.yml``) - the base with resolved ids appended, plus
+**Output** (``sample-app.generated.yml``) - the base with resolved ids appended, plus
 ``properties: all: true`` for each templated category so the property records
 themselves are staged and published too.
 
@@ -66,11 +66,7 @@ each enabled office found there.
 Appending rules
 ---------------
 * Resolved ids are appended after whatever the base already declares.
-* An id already present is dropped, so a project's own literal entry always
-  wins, and the heavy aliasing in REGI's data collapses to one entry. Seven SWT
-  families all resolve to ``Elev.Inst.1Hour.0.Ccp-Rev``; without this the
-  generated config would list it seven times and cda-etl would download and
-  publish it seven times per run.
+* An id already present is dropped, so a project's own literal entry always wins.
 * ``entry`` supplies keys carried onto every appended entry for that category
   (``por: true``, ``download:``, ...).
 * Disabled offices and projects are left untouched - cda-etl skips them anyway,

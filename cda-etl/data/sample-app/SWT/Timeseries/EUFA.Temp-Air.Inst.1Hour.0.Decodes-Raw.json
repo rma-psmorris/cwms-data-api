@@ -1,15 +1,15 @@
 {
   "begin": "2026-06-01T00:00:00+00:00",
   "date-version-type": "UNVERSIONED",
-  "end": "2026-08-03T11:00:00+00:00",
+  "end": "2026-08-03T15:00:00+00:00",
   "interval": "PT1H",
   "interval-offset": 0,
   "name": "EUFA.Temp-Air.Inst.1Hour.0.Decodes-Raw",
   "office-id": "SWT",
-  "page": "MTc4MTQ4MTYwMDAwMHx8MzM3fHwzMDAwMDA=",
+  "page": "MTc4MDI3MjAwMDAwMHx8MzM3fHwzMDAwMDA=",
   "page-size": 300000,
   "time-zone": "US/Central",
-  "total": 1524,
+  "total": 1528,
   "units": "F",
   "value-columns": [
     {
@@ -7647,6 +7647,26 @@
     [
       1785754800000,
       69.134,
+      0
+    ],
+    [
+      1785758400000,
+      69.85400000000001,
+      0
+    ],
+    [
+      1785762000000,
+      71.006,
+      0
+    ],
+    [
+      1785765600000,
+      73.508,
+      0
+    ],
+    [
+      1785769200000,
+      77.396,
       0
     ]
   ]

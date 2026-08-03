@@ -172,9 +172,6 @@ def _resolve_from_property_category(
             continue
 
         if value_placeholder not in template:
-            # Substituting nothing would emit the raw template as if it were a
-            # real id. REGI's templates have the same shape as a valid ts_id,
-            # so it would be staged under a nonsense name rather than failing.
             raise ValueError(
                 f"Global property {key[0]}.{key[1]}.{placeholder} in category {category_id} "
                 f"for office {office_id} has value {template!r}, which does not contain the "

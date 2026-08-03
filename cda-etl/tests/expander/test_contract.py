@@ -86,7 +86,7 @@ def generated_path(tmp_path, mocker) -> Path:
         templates_name=TEMPLATES_FIXTURE.name,
         templates_digest="1" * 64,
     )
-    path = tmp_path / "regi.generated.yml"
+    path = tmp_path / "sample-app.generated.yml"
     path.write_text(rendered, encoding="utf-8")
     resolver.reset_cache()
 

@@ -6,13 +6,13 @@
 # picked up by the next run with no change here.
 #
 # No offices and no projects appear below - those come from the base config
-# (regi.yml), and each category is resolved once per enabled project of each
+# (sample-app.yml), and each category is resolved once per enabled project of each
 # enabled office found there.
 #
 # Run:
-#   python -m cda_expander --base      data/regi/regi.yml \
-#                          --templates data/regi/regi.templates.yml \
-#                          --out       data/regi/regi.generated.yml
+#   python -m cda_expander --base      data/sample-app/sample-app.yml \
+#                          --templates data/sample-app/sample-app.templates.yml \
+#                          --out       data/sample-app/sample-app.generated.yml
 #
 # Keys:
 #   categoryId        The CWMS property category to read. Read once per office

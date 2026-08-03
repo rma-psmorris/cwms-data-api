@@ -307,12 +307,12 @@ def _publish_project_data(project_config: ProjectConfig, config: DownloadConfig)
 def _initialize_runtime():
     utils.cwms_compat.disable_retry_on_missing_data()
 
-    config_path = _read_env("REGI_CONFIG_PATH", "regi.generated.yml")
+    config_path = _read_env("APP_CONFIG_PATH", "sample-app.generated.yml")
     config = DownloadConfig.from_yaml(config_path)
     session_manager = SessionManager.from_env()
     utils.threading_util.init_executor(config.settings.max_threads)
 
-    storage_root = _read_env("REGI_DATA_PATH", config.settings.path)
+    storage_root = _read_env("APP_DATA_PATH", config.settings.path)
     utils.filesystem_store.set_storage_root(storage_root)
 
     config_log_level = getattr(logging, config.settings.log_level.upper(), logging.INFO)

@@ -30,11 +30,6 @@ _STORAGE_ROOT = Path("./data")
 # cannot be written on Windows at all ([Errno 22] Invalid argument), while the
 # same name is fine on Linux, so this only shows up outside the container.
 #
-# Percent-encode the offenders instead. Applied on every platform, not just
-# Windows, so a tree staged in the container and a tree staged locally have
-# identical layouts and are interchangeable - which matters because the compose
-# flow and a local run share ./data/regi.
-#
 # "%" is escaped too, otherwise a real "%3F" in an id would decode back to "?"
 # and collide. list_json_stems reverses this, so names handed back to callers
 # (and on to CDA) are always the true ones.

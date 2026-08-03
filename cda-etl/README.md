@@ -1,15 +1,18 @@
 # CDA ETL
 
-This project downloads CWMS data from a source CDA REST API, stages the retrieved JSON on the local filesystem, and then uploads the staged records to a destination CDA REST API.
+This project downloads CWMS data from a source CDA REST API, stages the retrieved JSON on the local filesystem, 
+and then uploads the staged records to a destination CDA REST API.
 
 The workflow is intentionally split into two phases:
 
 1. Stage data from the source API onto disk.
 2. Publish the staged files to the destination API.
 
-When `SOURCE_CDA_URL` is configured, the stage phase always re-downloads source data and overwrites staged files for projects, locations, and timeseries.
+When `SOURCE_CDA_URL` is configured, the stage phase always re-downloads source data and overwrites staged files for 
+projects, locations, and timeseries.
 
-If `SOURCE_CDA_URL` is not configured, the pipeline skips the download phase and publishes whatever is already staged on disk.
+If `SOURCE_CDA_URL` is not configured, the pipeline skips the download phase and publishes whatever 
+is already staged on disk.
 
 ## What It Does
 
@@ -19,15 +22,16 @@ The ETL process currently handles three CWMS resource types:
 - Projects
 - Timeseries data
 
-The data is organized by office, project, and resource type, then written to a filesystem staging area before being posted to the destination CDA API.
+The data is organized by office, project, and resource type, then written to a filesystem staging area before 
+being posted to the destination CDA API.
 
 ## Configuration Overview
 
-The main runtime configuration is stored in a YAML file, defaulting to `regi.generated.yml` in the working directory.
+The main runtime configuration is stored in a YAML file, defaulting to `sample-app.generated.yml` 
+in the working directory.
 
-The application reads the YAML path from the `REGI_CONFIG_PATH` environment variable. If the variable is not set, it looks for `regi.generated.yml` next to where the process starts.
-
-Every timeseries, rating, and location level in that file carries a **literal id**. cda-etl has no concept of deriving an id at run time. Applications that store their ids indirectly - REGI keeps them in CWMS association properties, and CWMS PublishedTimeSeries/A2W is expected later - resolve them ahead of time with `cda-expander` (see below), which writes the literal-id file that cda-etl reads.
+The application reads the YAML path from the `APP_CONFIG_PATH` environment variable. If the variable is not set,
+it looks for `sample-app.generated.yml` next to where the process starts.
 
 ### Example Structure
 
@@ -55,29 +59,37 @@ offices:
 
 ## cda-expander
 
-`cda-expander` is a separate preprocessor that lives in the same image (`src/cda_expander/`). It takes a base config plus a file of association templates, resolves the templates against CWMS, and appends the resulting literal ids to the base.
+`cda-expander` is a separate preprocessor that lives in the same image (`src/cda_expander/`). 
+It takes a base config plus a file of association templates, resolves the templates against CWMS, 
+and appends the resulting literal ids to the base.
 
-It exists so that cda-etl stays application-agnostic: REGI's `?GLOBAL?` property conventions, and any future scheme, live entirely in this tool. cda-etl never imports it, and it never imports cda-etl - the two meet only through the generated file, and a test enforces that.
+It exists so that cda-etl stays application-agnostic: REGI's `?GLOBAL?` property conventions, and any future scheme, 
+live entirely in this tool. cda-etl never imports it, and it never imports cda-etl -
+the two meet only through the generated file, and a test enforces that.
 
 ### Files
 
 | File | Role |
 | --- | --- |
-| `data/regi/regi.yml` | **Base config.** Hand-edited. An ordinary cda-etl config in the schema above - literal ids only, valid and runnable on its own. |
-| `data/regi/regi.templates.yml` | **Templates.** Hand-edited. Association patterns and nothing else: no offices, no projects, no settings. |
-| `data/regi/regi.generated.yml` | **Output**, and what cda-etl reads. The base with resolved ids appended. Generated, committed, never hand-edited. |
+| `data/sample-app/sample-app.yml` | **Base config.** Hand-edited. An ordinary cda-etl config in the schema above - literal ids only, valid and runnable on its own. |
+| `data/sample-app/sample-app.templates.yml` | **Templates.** Hand-edited. Association patterns and nothing else: no offices, no projects, no settings. |
+| `data/sample-app/sample-app.generated.yml` | **Output**, and what cda-etl reads. The base with resolved ids appended. Generated, committed, never hand-edited. |
 
-Keeping the base separate means the template file stays small and is only ever about associations, and the base remains a config you can read, validate, and run without the expander.
+Keeping the base separate means the template file stays small and is only ever about associations, 
+and the base remains a config you can read, validate, and run without the expander.
 
 ### Usage
 
 ```bash
-python -m cda_expander --base      /data/regi/regi.yml \
-                       --templates /data/regi/regi.templates.yml \
-                       --out       /data/regi/regi.generated.yml
+python -m cda_expander --base      /data/sample-app/sample-app.yml \
+                       --templates /data/sample-app/sample-app.templates.yml \
+                       --out       /data/sample-app/sample-app.generated.yml
 ```
 
-Add `--check` to verify without writing: it exits `1` if the file on disk differs from freshly generated output, which catches a hand-edited file, an edited base, and an underlying association property that changed without a regenerate. `docker-compose` runs the expander as a service that must complete before `cda-etl` starts, and `./gradlew :cda-etl:check` runs the `--check` form when `SOURCE_CDA_URL` is set.
+Add `--check` to verify without writing: it exits `1` if the file on disk differs from freshly generated output, 
+which catches a hand-edited file, an edited base, and an underlying association property that changed 
+without a regenerate. `docker-compose` runs the expander as a service that must complete before `cda-etl` starts, 
+and `./gradlew :cda-etl:check` runs the `--check` form when `SOURCE_CDA_URL` is set.
 
 The expander resolves against `SOURCE_CDA_URL` / `SOURCE_CDA_API_KEY` - the same source instance cda-etl stages from.
 
@@ -105,9 +117,12 @@ templates:
       por: true
 ```
 
-That is the whole file. **There is deliberately no way to list individual property ids.** A category is read once and everything in it is used, so nothing can be missed and nothing has to be added here when a property appears in the database later - the next run picks it up.
+That is the whole file. **There is deliberately no way to list individual property ids.** 
+A category is read once and everything in it is used, so nothing can be missed and 
+nothing has to be added here when a property appears in the database later - the next run picks it up.
 
-An earlier design did enumerate ids. An audit against SWT found only 2 of 33 configured entries matched a property that actually existed, which is what a hand-maintained list of ~110 strings drifts to. See `docs/template-audit-swt.md`.
+An earlier design did enumerate ids. An audit against SWT found only 2 of 33 configured entries matched a property 
+that actually existed, which is what a hand-maintained list of ~110 strings drifts to. See `docs/template-audit-swt.md`.
 
 Keys:
 
@@ -133,7 +148,6 @@ If a global's value doesn't contain `valuePlaceholder`, that's an error rather t
 ### Appending rules
 
 - Resolved ids are appended after whatever the base already declares for that category.
-- **An id already present is not appended again**, so a project's own literal entry always wins, and REGI's heavy aliasing collapses. Seven SWT families all resolve to `Elev.Inst.1Hour.0.Ccp-Rev`; without this, cda-etl would download and publish it seven times per run.
 - Disabled offices and projects are skipped; nothing is ever removed or rewritten.
 
 ### Cost of a run
@@ -141,12 +155,6 @@ If a global's value doesn't contain `valuePlaceholder`, that's an error rather t
 **One request per office per category** — three for SWT, regardless of project count. Everything after the listing is in-memory, and listings are memoized for the run.
 
 For scale: the previous per-id design needed two requests per template per project, which at SWT's ~110 ids and 40 projects was over 1,300 sequential round trips to learn what three requests say.
-
-### Why the generated file is committed
-
-The resolved ids are the mapping from "REGI says this project's storage timeseries" to an actual `ts_id` that gets written to the destination database. Committing the generated file makes that mapping reviewable in a diff before a run happens, rather than something you reconstruct from logs afterwards.
-
-For that to work the output has to be stable, so the header records the expander version and a SHA-256 of each input but deliberately **no timestamp** and **no source URL** - either would make the file change on every regeneration or vary by environment, and the diff would stop meaning anything.
 
 ### YAML Fields
 
@@ -169,7 +177,8 @@ The `enabled` field is optional everywhere. If it is omitted, the item is treate
 
 Staged data is written under the directory configured by `settings.path`.
 
-For timeseries data, the stored file name does not include the time window. During staging with `SOURCE_CDA_URL` configured, each run overwrites the staged file with a fresh source download.
+For timeseries data, the stored file name does not include the time window. 
+During staging with `SOURCE_CDA_URL` configured, each run overwrites the staged file with a fresh source download.
 
 ## Runtime Parameters
 
@@ -187,21 +196,21 @@ Environment variable values are trimmed. Empty or whitespace-only values are tre
 
 ### Other Runtime Settings
 
-- `REGI_CONFIG_PATH`: Path to the literal-id YAML config cda-etl reads. Defaults to `regi.generated.yml`.
-- `REGI_BASE_CONFIG_PATH`: Path to the hand-edited base config. Only used by the expander.
-- `REGI_TEMPLATES_PATH`: Path to the association templates file. Only used by the expander.
+- `APP_CONFIG_PATH`: Path to the literal-id YAML config cda-etl reads. Defaults to `sample-app.generated.yml`.
+- `APP_BASE_CONFIG_PATH`: Path to the hand-edited base config. Only used by the expander.
+- `APP_TEMPLATES_PATH`: Path to the association templates file. Only used by the expander.
 - `LOG_LEVEL`: Console log level for the application process. Defaults to `INFO`.
 
 ## Docker Usage
 
 ### docker run
 
-Mount the config directory into the container and point `REGI_CONFIG_PATH` at the generated file.
+Mount the config directory into the container and point `APP_CONFIG_PATH` at the generated file.
 
 ```powershell
 docker run --rm `
-  -v ${PWD}\data\regi:/data/regi `
-  -e REGI_CONFIG_PATH=/data/regi/regi.generated.yml `
+  -v ${PWD}\data\sample-app:/data/sample-app `
+  -e APP_CONFIG_PATH=/data/sample-app/sample-app.generated.yml `
   -e SOURCE_CDA_URL=https://source.example/cwms-data `
   -e SOURCE_CDA_API_KEY=your-source-key `
   -e DEST_CDA_URL=https://dest.example/cwms-data `
@@ -213,18 +222,22 @@ To regenerate the config first, run the same image with the expander entry point
 
 ```powershell
 docker run --rm `
-  -v ${PWD}\data\regi:/data/regi `
+  -v ${PWD}\data\sample-app:/data/sample-app `
   -e SOURCE_CDA_URL=https://source.example/cwms-data `
   -e SOURCE_CDA_API_KEY=your-source-key `
   cwms-data-api/etl `
-  python -m cda_expander --base /data/regi/regi.yml --templates /data/regi/regi.templates.yml --out /data/regi/regi.generated.yml
+  python -m cda_expander --base /data/sample-app/sample-app.yml --templates /data/sample-app/sample-app.templates.yml --out /data/sample-app/sample-app.generated.yml
 ```
 
-If you do not want to download from the source API, omit `SOURCE_CDA_URL` and the pipeline will publish only staged files. Note the expander does require it, since that is where association properties are read from.
+If you do not want to download from the source API, omit `SOURCE_CDA_URL` 
+and the pipeline will publish only staged files. Note the expander does require it, 
+since that is where association properties are read from.
 
 ### docker-compose
 
-The included `docker-compose.yml` defines two services: `cda-expander` regenerates `regi.generated.yml` and exits, and `cda-etl` waits for it to complete successfully before starting. Both mount `./cda-etl/data/regi` at `/data/regi`.
+The included `docker-compose.yml` defines two services: `cda-expander` regenerates `sample-app.generated.yml` 
+and exits, and `cda-etl` waits for it to complete successfully before starting. 
+Both mount `./cda-etl/data/sample-app` at `/data/sample-app`.
 
 You still need to supply the API endpoint environment variables when running Compose.
 

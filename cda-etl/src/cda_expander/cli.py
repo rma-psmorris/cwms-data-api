@@ -18,9 +18,9 @@
 """
 Command line entry point for the config expander.
 
-    python -m cda_expander --base      regi.yml \
-                           --templates regi.templates.yml \
-                           --out       regi.generated.yml
+    python -m cda_expander --base      sample-app.yml \
+                           --templates sample-app.templates.yml \
+                           --out       sample-app.generated.yml
 
 Add --check to compare instead of writing.
 

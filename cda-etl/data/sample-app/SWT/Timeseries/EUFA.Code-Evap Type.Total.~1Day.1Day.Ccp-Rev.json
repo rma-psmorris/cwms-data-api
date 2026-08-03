@@ -1,15 +1,15 @@
 {
   "begin": "2026-06-01T12:00:00+00:00",
   "date-version-type": "UNVERSIONED",
-  "end": "2026-08-02T12:00:00+00:00",
+  "end": "2026-08-03T12:00:00+00:00",
   "interval": "PT0S",
   "interval-offset": -2147483648,
   "name": "EUFA.Code-Evap Type.Total.~1Day.1Day.Ccp-Rev",
   "office-id": "SWT",
-  "page": "MTc4MjczNDQwMDAwMHx8MTR8fDMwMDAwMA==",
+  "page": "MTc4Mzk0NDAwMDAwMHx8MTR8fDMwMDAwMA==",
   "page-size": 300000,
   "time-zone": "US/Central",
-  "total": 63,
+  "total": 64,
   "units": "n/a",
   "value-columns": [
     {
@@ -341,6 +341,11 @@
     ],
     [
       1785672000000,
+      5.0,
+      0
+    ],
+    [
+      1785758400000,
       5.0,
       0
     ]

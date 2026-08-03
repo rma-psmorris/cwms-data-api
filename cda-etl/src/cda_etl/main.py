@@ -40,15 +40,6 @@ logger = logging.getLogger(__name__)
 
 _RESPONSE_STATUS_PATTERN = re.compile(r"response=<Response \[(\d{3})\]>")
 _NOT_CONFIGURED = "<not configured>"
-
-# Pulls the parts of cwms-python's "Failed to fetch data" message that are worth
-# keeping when the cause was a 404: which timeseries, and which window. The rest
-# of that message - the full query string, the incident identifier, the empty
-# details object - describes an expected outcome, so it is dropped.
-#
-# The bounds are stringified datetimes, so they contain one internal space
-# ("2026-06-01 00:00:00+00:00") - hence the optional second token rather than a
-# bare \S+ - and colons, hence anchoring the end on " to " and the trailing ":".
 _FETCH_WINDOW_PATTERN = re.compile(
     r"Failed to fetch data from (\S+(?: \S+)?) to (\S+(?: \S+)?):"
 )
@@ -56,10 +47,6 @@ _FETCH_TS_NAME_PATTERN = re.compile(r"[?&]name=([^&\s)]+)")
 
 
 def _no_data_window_summary(message: str) -> tuple[str, tuple[object, ...]]:
-    """
-    A one-line "nothing there" summary of a failed fetch, phrased like the
-    equivalent messages the callers log themselves.
-    """
     window = _FETCH_WINDOW_PATTERN.search(message)
     name = _FETCH_TS_NAME_PATTERN.search(message)
 
@@ -101,8 +88,6 @@ _STAGE = log_util.EXTRACT
 _PUBLISH = log_util.LOAD
 _phase = log_util.phase
 
-# The words for each direction, for library messages that describe a request
-# without saying which way it went.
 _DIRECTIONS = {
     log_util.EXTRACT: "reading from the source",
     log_util.LOAD: "writing to the destination",
@@ -247,7 +232,7 @@ def _project_inputs(project_config: ProjectConfig) -> dict[str, list]:
 def _log_project_header(project_config: ProjectConfig, inputs: dict[str, list]) -> None:
     present = [log_util.plural(len(items), noun) for noun, items in inputs.items() if items]
 
-    logger.info("%s: %s", project_config.qualified_id, ", ".join(present) or "nothing configured")
+    logger.info("%s: %s", project_config.id, ", ".join(present) or "nothing configured")
 
 
 def _stage_project_data(project_config: ProjectConfig, config: DownloadConfig) -> None:
@@ -280,7 +265,7 @@ def _stage_project_data(project_config: ProjectConfig, config: DownloadConfig) -
 
     logger.info(
         "%s extracted in %s",
-        project_config.qualified_id,
+        project_config.id,
         log_util.duration(time.monotonic() - started),
     )
 
@@ -332,18 +317,12 @@ def _publish_project_data(project_config: ProjectConfig, config: DownloadConfig)
 
     logger.info(
         "%s loaded in %s",
-        project_config.qualified_id,
+        project_config.id,
         log_util.duration(time.monotonic() - started),
     )
 
 
 def _initialize_runtime():
-    # Defaults to the expander's output. Ids that an application derives from
-    # CWMS association properties (or, later, PublishedTimeSeries/A2W) are
-    # resolved into literal ids by cda-expander before this runs; cda-etl only
-    # ever reads literal ids. See docs/id-resolution-work-plan.md.
-    # A 404 means "no values in that window" and will still be 404 on the sixth
-    # attempt, so stop cwms-python retrying it. See utils/cwms_compat.py.
     utils.cwms_compat.disable_retry_on_missing_data()
 
     config_path = _read_env("REGI_CONFIG_PATH", "regi.generated.yml")
@@ -351,11 +330,6 @@ def _initialize_runtime():
     session_manager = SessionManager.from_env()
     utils.threading_util.init_executor(config.settings.max_threads)
 
-    # settings.path in a committed config is written for the container, where
-    # compose mounts ./cda-etl/data/regi at /data/regi. Running outside the
-    # container that absolute path resolves against the current drive instead
-    # (C:\data\regi on Windows), so allow an override rather than making a local
-    # run require editing - and then reverting - committed config.
     storage_root = _read_env("REGI_DATA_PATH", config.settings.path)
     utils.filesystem_store.set_storage_root(storage_root)
 

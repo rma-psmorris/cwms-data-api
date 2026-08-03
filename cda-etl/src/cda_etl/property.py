@@ -32,9 +32,6 @@ PROPERTIES_FOLDER = "Properties"
 
 
 def _label(work_item) -> str:
-    """
-    The category, and how much of it - which is what a property work item is.
-    """
     category_id = work_item[1]
     named = len(work_item) - 2
 
@@ -56,11 +53,6 @@ def _report_nothing_to_do(office_id: str, configured: list, phase: str) -> None:
 
 # Staging writes one file per category - <office>/Properties/<category>.json,
 # holding a JSON list of property records - rather than one file per property.
-# A REGI office has three association categories but hundreds of properties in
-# them, and a file per property made the staged tree grow with the data while
-# every read and write paid a separate filesystem round trip. The category
-# listing endpoint returns the whole category in a single request, so one file
-# is also one request.
 #
 # The REST API has no bulk property store, so the publish side still POSTs each
 # record on its own - it just parses them out of the one staged file.
@@ -110,10 +102,6 @@ def publish_staged_properties(office_id: str, properties: Iterable[PropertyConfi
     properties = list(properties)
     all_category_ids = sorted({item.category_id for item in properties if item.category_id and item.all_in_category})
     specific_ids_by_category = _group_specific_ids(properties, skip_categories=all_category_ids)
-
-    # Two shapes of work item, one task per category either way: [office,
-    # category] publishes every record in the staged category file, and
-    # [office, category, id, ...] publishes only the named ones.
     work_items = [[office_id, category_id] for category_id in all_category_ids]
     work_items.extend(
         [office_id, category_id, *property_ids] for category_id, property_ids in specific_ids_by_category
@@ -162,12 +150,6 @@ def _group_specific_ids(
 def _download_all_properties_in_category(work_item: list[str]) -> None:
     office_id, category_id = work_item
     logger.debug("Extracting all properties for category %s in office %s", category_id, office_id)
-    # The list endpoint takes *-mask parameters (see CDA's
-    # PropertyController.getAll: OFFICE_MASK / CATEGORY_ID_MASK / NAME_MASK).
-    # "office" and "category-id" belong to the single-property GET; passing
-    # those here leaves every mask null and the listing returns nothing at all
-    # rather than failing, so an "all: true" category silently stages zero
-    # properties.
     category_response = cwms.api.get(
         endpoint="properties",
         params={
@@ -189,9 +171,6 @@ def _download_all_properties_in_category(work_item: list[str]) -> None:
 
         entries.append(property_data)
 
-    # The listing is the authoritative snapshot of the category, so it replaces
-    # the file outright instead of merging - a property deleted upstream should
-    # not survive on disk.
     _write_category(office_id, category_id, _sort_entries(entries))
     logger.info(
         "Staged %s for category %s in office %s",
@@ -225,9 +204,6 @@ def _download_properties_in_category(work_item: list[str]) -> None:
             )
         )
 
-    # Merged, not replaced. Properties are declared at both office and project
-    # level, so several stage calls can target one category file, and a plain
-    # write would leave only the last caller's records.
     with _STAGE_WRITE_LOCK:
         merged = _merge_entries(_read_category(office_id, category_id), entries)
         _write_category(office_id, category_id, merged)
@@ -263,9 +239,6 @@ def _upload_properties_in_category(work_item: list[str]) -> None:
         office_id,
     )
 
-    # No bulk store endpoint, so one request per record. Every record is
-    # attempted before the task reports, so one rejected property does not hide
-    # the rest of the category.
     failures: list[str] = []
     for property_name, property_data in selected:
         try:
@@ -290,7 +263,6 @@ def _upload_one_property(property_name: str, property_data: dict) -> None:
     try:
         cwms.api.post(endpoint="properties", data=property_data, api_version=1)
     except cwms.api.ApiError as error:
-        # If it already exists, update instead of failing the whole ETL run.
         if error.response.status_code != 409:
             raise
 
@@ -308,9 +280,6 @@ def _read_category(office_id: str, category_id: str) -> list[dict] | None:
 
 
 def _write_category(office_id: str, category_id: str, entries: list[dict]) -> None:
-    # Earlier builds staged <category>/<property>.json. Nothing reads that tree
-    # now, and the ETL leaves it alone - clearing it is a one-off cleanup of the
-    # staged data, not something a run should do.
     filesystem_store.write_json(entries, office_id, PROPERTIES_FOLDER, category_id)
 
 

@@ -152,8 +152,6 @@ def _download_one_location_level(work_item: list[object]) -> None:
         if not cda_errors.is_no_data(error):
             raise
 
-        # A resolved level id that this project has no values for is ordinary,
-        # not a fault. Staging nothing means publish skips it.
         logger.debug(
             "No location level values for %s in office %s between %s and %s; nothing staged.",
             level_id,

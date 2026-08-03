@@ -46,27 +46,13 @@ def _label(work_item) -> str:
 
 
 def _has_publishable_value(data: object) -> bool:
-    """
-    Whether a clob payload carries a value CDA will accept on store.
-
-    Clob.validate() requires office-id, id and value, and CwmsDTOValidator's
-    required() rejects only null - so an empty string is publishable but an
-    absent or null value is not. A clob whose value is null comes back from the
-    GET with the key omitted entirely, which then fails the POST with
-    400 "required fields not present" / "missing fields": "value".
-    """
     if not isinstance(data, dict):
-        # An unfamiliar shape is passed through rather than silently dropped.
         return True
 
     return data.get("value") is not None
 
 
 def _report_nothing_to_do(office_id: str, configured: list, phase: str) -> None:
-    """
-    Nothing configured is a normal config, not a problem. Only ids that were
-    supplied and then all rejected are worth a warning.
-    """
     if not configured:
         logger.debug("No clobs configured for office %s; nothing to %s.", office_id, phase)
         return
@@ -129,8 +115,6 @@ def _download_one_clob(work_item: list[str]) -> None:
     clob_data = cwms.get_clob(clob_id, office_id).json
 
     if not _has_publishable_value(clob_data):
-        # The clob exists but holds no text. Staging it would only give the
-        # publish phase something CDA is guaranteed to reject.
         logger.debug("Clob %s in office %s has no value; nothing staged.", clob_id, office_id)
         _tally.record(_NO_VALUE, clob_id)
         return
@@ -149,10 +133,6 @@ def _upload_one_clob(work_item: list[str]) -> None:
         )
 
     if not _has_publishable_value(clob_data):
-        # CDA's own Clob.validate() requires a non-null value, so this would come
-        # back 400 "required fields not present" / "missing fields": "value".
-        # Staging skips these now, but files written before that change - or by an
-        # older build - are still on disk.
         logger.debug(
             "Staged clob %s in office %s has no value; nothing to publish.", clob_id, office_id
         )

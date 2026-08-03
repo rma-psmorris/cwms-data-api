@@ -15,29 +15,6 @@
 #  LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 #  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 #  SOFTWARE.
-"""
-Stops cwms-python retrying a 404 six times.
-
-cwms-python retries a failed timeseries chunk up to six times with backoff. That
-exists for a good reason - its own comment notes CDA occasionally returns 500s
-from connection-pool exhaustion that succeed on retry, and 500 is deliberately
-left out of the session-level status_forcelist so it can be handled there
-instead. But the loop catches bare `Exception`, so a 404 is retried too.
-
-A 404 means "no values in this window". It will still be 404 on the sixth
-attempt. Retrying wastes six round trips plus backoff per empty chunk, and with
-a whole association category broadcast to every project there are a lot of empty
-chunks.
-
-The session-level retry (urllib3) already excludes 404 - its status_forcelist is
-[403, 429, 502, 503, 504] - so only the chunk loop needs correcting.
-
-This replaces that one private function. It is a patch against library
-internals, so it verifies the shape it expects first and declines to patch (with
-a warning) rather than breaking if cwms-python is upgraded and has moved on.
-Worth removing once cwms-python distinguishes definitive from transient errors
-itself.
-"""
 from __future__ import annotations
 
 import logging
@@ -57,10 +34,6 @@ _ATTEMPTS_ATTRIBUTE = "_CHUNK_ATTEMPTS"
 
 _patched = False
 
-# What is worth keeping out of a chunk failure. The rest of the exception text -
-# the percent-encoded query string, "source":"Unknown", an empty details object -
-# is 200 characters that tell a reader nothing they can act on, and it was being
-# logged twice per attempt.
 _NAME_PATTERN = re.compile(r"[?&]name=([^&\s)]+)")
 _BEGIN_PATTERN = re.compile(r"[?&]begin=([^&\s)]+)")
 _END_PATTERN = re.compile(r"[?&]end=([^&\s)]+)")
@@ -99,20 +72,12 @@ def _describe_cause(error: BaseException) -> str:
     cause = server_message.group(1) if server_message else type(error).__name__
 
     if incident:
-        # Only the leading segment: the full UUID is enough to find in a server
-        # log, and the first block is enough to correlate lines here.
         cause = f'{cause} (incident {incident.group(1).split("-")[0]})'
 
     return cause
 
 
 def disable_retry_on_missing_data() -> bool:
-    """
-    Patches cwms-python so a 404 fails its chunk immediately instead of being
-    retried. Returns True if the patch was applied.
-
-    Idempotent, so calling it from more than one entry point is safe.
-    """
     global _patched
 
     if _patched:
@@ -142,11 +107,6 @@ def disable_retry_on_missing_data() -> bool:
         return False
 
     def _call_with_retry(fn: Any, *args: Any, attempts: int = default_attempts) -> Any:
-        # One line per chunk, not two per attempt. A chunk that fails twice and
-        # then succeeds previously produced four lines - an ERROR from cwms.api
-        # about the status code and a WARNING here, per attempt - for an event
-        # whose outcome was success. Per-attempt detail is DEBUG; the log speaks
-        # once, when the outcome is known.
         failed = 0
         last_error: BaseException | None = None
         started = time.monotonic()

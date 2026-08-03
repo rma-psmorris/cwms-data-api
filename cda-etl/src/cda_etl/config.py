@@ -201,13 +201,6 @@ class PropertyConfig:
 
 def _iter_property_configs(raw_properties: list[Any], enabled_only: bool) -> Iterator[PropertyConfig]:
     for data in raw_properties:
-        # Supports grouped syntax:
-        # properties:
-        #   - categoryId: REGI
-        #     all: true
-        #     properties:
-        #       - id: EUFA.ETL.FLAG
-        #       - id: EUFA.OTHER.FLAG
         if isinstance(data, dict) and "properties" in data:
             category_id = data.get("categoryId")
 
@@ -253,21 +246,6 @@ class ProjectConfig:
             enabled=_is_enabled(data),
             raw=data,
         )
-
-    @property
-    def qualified_id(self) -> str:
-        """
-        Returns office-qualified project id.
-
-        Example:
-            office_id = SWT
-            id = EUFA
-            qualified_id = SWT.EUFA
-        """
-        if self.id.startswith(f"{self.office_id}."):
-            return self.id
-
-        return f"{self.office_id}.{self.id}"
 
     def locations(self, enabled_only: bool = True) -> Iterator[LocationConfig]:
         for data in self.raw.get("locations", []):

@@ -32,8 +32,6 @@ def init_executor(max_workers):
 
 
 def _format_part(part):
-    # Work items carry datetimes; str() on those spells out microseconds, which
-    # is noise in a log line that already names the window.
     if isinstance(part, datetime):
         return log_util.display(part)
 
@@ -47,11 +45,6 @@ def _format_item(item):
 
 
 class BatchResult:
-    """
-    What a batch did, so the caller can account for it in one line instead of
-    logging "Completed <verb> <resource> for office <id>" - which reported only
-    that the code reached the end of the function.
-    """
 
     __slots__ = ("total", "skipped")
 
@@ -117,14 +110,7 @@ def execute_tasks(
     Runs task_func over items on the shared executor.
 
     Every item is attempted, so one bad id does not hide the rest, but a batch
-    with any hard failure raises TaskExecutionError once it finishes. Silently
-    warning and carrying on made a run that staged nothing exit 0: the publish
-    phase would then either fail with a confusing "no staged data" or quietly
-    publish whatever a previous run had left on disk.
-
-    A missing staged file (FileNotFoundError) stays a warning rather than a
-    failure - that is the modelled "this item was not staged, skip it" case,
-    and it already has its own message.
+    with any hard failure raises TaskExecutionError once it finishes.
 
     ``label`` renders a work item as the identifier it was announced under, so a
     skip or a failure can be matched to the item by eye. Without it the log falls

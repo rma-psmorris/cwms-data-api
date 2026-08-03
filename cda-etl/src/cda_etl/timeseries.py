@@ -31,9 +31,6 @@ logger = logging.getLogger(__name__)
 DATE_TIME_FORMAT = "%Y-%m-%d %H.%M.%S"
 TIMESERIES_FOLDER = "Timeseries"
 
-# "Nothing here" is the bulk outcome, not the exception: whole association
-# categories are applied to every project, so most ids have nothing for most
-# projects. Collected and reported once per batch rather than a line each.
 _NOT_FOUND = "not found in the source"
 _EMPTY_WINDOW = "with no values in the window"
 _STAGED_EMPTY = "with no staged values"
@@ -49,20 +46,10 @@ def _start_batch() -> log_util.Tally:
 
 
 def _label(ts_info) -> str:
-    """
-    A work item as the identifier it is announced under, for the skip and failure
-    lines. Previously those lines carried the internal list instead
-    ("SWT, EUFA.Opening.Inst.0.0.MANUAL, 2026-06-01 00:00:00, ...").
-    """
     return f"{ts_info[1]} [{log_util.window(ts_info[2], ts_info[3])}]"
 
 
 def _value_count(data: object) -> int | None:
-    """
-    Number of values in a timeseries payload, or None if it does not look like
-    one. CDA answers 200 with "values": [] for an id that exists but has nothing
-    in the window - distinct from the 404 it gives when there is no data at all.
-    """
     if not isinstance(data, dict) or "values" not in data:
         return None
 
@@ -124,14 +111,6 @@ def publish_staged_timeseries(
 
 
 def _report_nothing_to_do(office_id: str, configured: list, phase: str) -> None:
-    """
-    Nothing configured is a normal config, not a problem. Only items that were
-    supplied and then all rejected are worth a warning.
-
-    The old unconditional warning fired once per project per phase for any
-    project with no timeseries, and did so directly after the project header line
-    had already said so.
-    """
     if not configured:
         logger.debug("No timeseries configured for office %s; nothing to %s.", office_id, phase)
         return
@@ -151,9 +130,6 @@ def _download_one_ts_data(ts_info):
     end = ts_info[3]
     begin_str = begin.strftime(DATE_TIME_FORMAT)
     end_str = end.strftime(DATE_TIME_FORMAT)
-    # DEBUG: with a whole association category applied to every project this is
-    # one line per item before anything has happened, and the batch reports what
-    # actually happened when it knows.
     logger.debug("Extracting timeseries %s for office %s [%s]", ts_id, office_id, log_util.window(begin, end))
 
     try:
@@ -161,24 +137,10 @@ def _download_one_ts_data(ts_info):
     except Exception as error:
         if not cda_errors.is_no_data(error):
             raise
-
-        # Nothing is staged, so a later publish of this window finds no file and
-        # skips it - which is the correct outcome for a timeseries that has no
-        # values here.
-        #
-        # 404 and 200-with-no-values are different events - the id is absent
-        # versus the id exists and this window is empty - and the two messages
-        # used to be worded so similarly ("No values for timeseries X ..." versus
-        # "Timeseries X ... returned no values ...") that the difference read as
-        # sloppiness rather than as information. They are now tallied under
-        # distinct reasons, which states the distinction without spending a line.
         _tally.record(_NOT_FOUND, ts_id)
         return
 
     if _value_count(data) == 0:
-        # 200 with an empty "values" list: the id exists, the window is empty.
-        # Nothing to stage, and nothing to publish later either - see
-        # _upload_one_ts_data for why an empty payload is not merely useless.
         _tally.record(_EMPTY_WINDOW, ts_id)
         return
 
@@ -192,11 +154,6 @@ def _upload_one_ts_data(ts_info):
     end = ts_info[3]
     begin_str = begin.strftime(DATE_TIME_FORMAT)
     end_str = end.strftime(DATE_TIME_FORMAT)
-    # DEBUG for the same reason as the extract side, and for one more: this line
-    # announced an intent to publish items the extract phase had already reported
-    # finding nothing for, and was then followed by a warning that there was
-    # nothing to publish. 15 of 37 items in a single-project run said all three
-    # things.
     logger.debug("Publishing timeseries %s for office %s [%s]", ts_id, office_id, log_util.window(begin, end))
 
     staged_data = filesystem_store.read_json(office_id, TIMESERIES_FOLDER, ts_id, begin_str, end_str, "data")
@@ -206,13 +163,6 @@ def _upload_one_ts_data(ts_info):
         )
 
     if _value_count(staged_data) == 0:
-        # Posting an empty payload achieves nothing, and cwms-python cannot even
-        # do it: store_timeseries guards with "len(chunks) == 1" before computing
-        # min(max_workers, len(chunks)), so zero values gives zero chunks and
-        # ThreadPoolExecutor(max_workers=0) raises "max_workers must be greater
-        # than 0". Its fetch path clamps with max(..., 1); the store path does
-        # not. Staging skips empties now, but files written before that change -
-        # or by an older build - are still on disk.
         _tally.record(_STAGED_EMPTY, ts_id)
         return
 

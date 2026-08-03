@@ -16,15 +16,33 @@
 #  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 #  SOFTWARE.
 import logging
+import time
 from typing import Iterable
 
 import cwms
 import utils.filesystem_store as filesystem_store
+import utils.log_util as log_util
 import utils.threading_util as threading_util
 from config import ClobConfig
 
 logger = logging.getLogger(__name__)
 CLOBS_FOLDER = "Clobs"
+
+_NO_VALUE = "with no value"
+_STAGED_NO_VALUE = "with no staged value"
+
+_tally = log_util.Tally()
+
+
+def _start_batch() -> log_util.Tally:
+    global _tally
+    _tally = log_util.Tally()
+
+    return _tally
+
+
+def _label(work_item) -> str:
+    return str(work_item[1])
 
 
 def _has_publishable_value(data: object) -> bool:
@@ -44,17 +62,43 @@ def _has_publishable_value(data: object) -> bool:
     return data.get("value") is not None
 
 
+def _report_nothing_to_do(office_id: str, configured: list, phase: str) -> None:
+    """
+    Nothing configured is a normal config, not a problem. Only ids that were
+    supplied and then all rejected are worth a warning.
+    """
+    if not configured:
+        logger.debug("No clobs configured for office %s; nothing to %s.", office_id, phase)
+        return
+
+    logger.warning(
+        "All %s configured for office %s are missing an id; nothing to %s.",
+        log_util.plural(len(configured), "clob"),
+        office_id,
+        phase,
+    )
+
+
 def stage_clobs(office_id: str, clobs: Iterable[ClobConfig]) -> None:
     clobs = list(clobs)
     work_items = [[office_id, clob.id] for clob in clobs if clob.id]
 
     if not work_items:
-        logger.warning("No valid clob ids found for staging")
+        _report_nothing_to_do(office_id, clobs, "extract")
         return
 
-    logger.info("Staging %d clob item(s) for office %s", len(work_items), office_id)
-    threading_util.execute_tasks(_download_one_clob, work_items)
-    logger.info("Completed staging clobs for office %s", office_id)
+    tally = _start_batch()
+    started = time.monotonic()
+    threading_util.execute_tasks(_download_one_clob, work_items, label=_label, tally=tally)
+    log_util.outcome(
+        logger,
+        action="Staged",
+        noun="clob",
+        total=len(work_items),
+        tally=tally,
+        office_id=office_id,
+        elapsed=time.monotonic() - started,
+    )
 
 
 def publish_staged_clobs(office_id: str, clobs: Iterable[ClobConfig]) -> None:
@@ -62,25 +106,33 @@ def publish_staged_clobs(office_id: str, clobs: Iterable[ClobConfig]) -> None:
     work_items = [[office_id, clob.id] for clob in clobs if clob.id]
 
     if not work_items:
-        logger.warning("No valid clob ids found for publishing")
+        _report_nothing_to_do(office_id, clobs, "load")
         return
 
-    logger.info("Publishing %d staged clob item(s) for office %s", len(work_items), office_id)
-    threading_util.execute_tasks(_upload_one_clob, work_items)
-    logger.info("Completed publishing clobs for office %s", office_id)
+    tally = _start_batch()
+    started = time.monotonic()
+    threading_util.execute_tasks(_upload_one_clob, work_items, label=_label, tally=tally)
+    log_util.outcome(
+        logger,
+        action="Published",
+        noun="clob",
+        total=len(work_items),
+        tally=tally,
+        office_id=office_id,
+        elapsed=time.monotonic() - started,
+    )
 
 
 def _download_one_clob(work_item: list[str]) -> None:
     office_id, clob_id = work_item
-    logger.info("Refreshing staged clob %s for office %s", clob_id, office_id)
+    logger.info("Extracting clob %s for office %s", clob_id, office_id)
     clob_data = cwms.get_clob(clob_id, office_id).json
 
     if not _has_publishable_value(clob_data):
         # The clob exists but holds no text. Staging it would only give the
         # publish phase something CDA is guaranteed to reject.
-        logger.info(
-            "Clob %s in office %s has no value; nothing staged.", clob_id, office_id
-        )
+        logger.debug("Clob %s in office %s has no value; nothing staged.", clob_id, office_id)
+        _tally.record(_NO_VALUE, clob_id)
         return
 
     filesystem_store.write_json(clob_data, office_id, CLOBS_FOLDER, clob_id)
@@ -101,9 +153,10 @@ def _upload_one_clob(work_item: list[str]) -> None:
         # back 400 "required fields not present" / "missing fields": "value".
         # Staging skips these now, but files written before that change - or by an
         # older build - are still on disk.
-        logger.info(
+        logger.debug(
             "Staged clob %s in office %s has no value; nothing to publish.", clob_id, office_id
         )
+        _tally.record(_STAGED_NO_VALUE, clob_id)
         return
 
     cwms.store_clobs(clob_data, fail_if_exists=False)

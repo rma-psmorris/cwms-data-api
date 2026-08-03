@@ -19,8 +19,7 @@ import sys
 import logging
 import os
 import re
-from contextlib import contextmanager
-from typing import Iterator
+import time
 from urllib.parse import unquote_plus
 import location
 import location_level
@@ -29,7 +28,9 @@ import property
 import rating
 import timeseries
 import clob
+import utils.cda_errors
 import utils.cwms_compat
+import utils.log_util as log_util
 import utils.threading_util
 import utils.filesystem_store
 from config import DownloadConfig, OfficeConfig, ProjectConfig
@@ -44,7 +45,13 @@ _NOT_CONFIGURED = "<not configured>"
 # keeping when the cause was a 404: which timeseries, and which window. The rest
 # of that message - the full query string, the incident identifier, the empty
 # details object - describes an expected outcome, so it is dropped.
-_FETCH_WINDOW_PATTERN = re.compile(r"Failed to fetch data from (\S+) to (\S+):")
+#
+# The bounds are stringified datetimes, so they contain one internal space
+# ("2026-06-01 00:00:00+00:00") - hence the optional second token rather than a
+# bare \S+ - and colons, hence anchoring the end on " to " and the trailing ":".
+_FETCH_WINDOW_PATTERN = re.compile(
+    r"Failed to fetch data from (\S+(?: \S+)?) to (\S+(?: \S+)?):"
+)
 _FETCH_TS_NAME_PATTERN = re.compile(r"[?&]name=([^&\s)]+)")
 
 
@@ -59,13 +66,20 @@ def _no_data_window_summary(message: str) -> tuple[str, tuple[object, ...]]:
     if window and name:
         return (
             "No values for timeseries %s between %s and %s; nothing staged.",
-            (unquote_plus(name.group(1)), window.group(1), window.group(2)),
+            (
+                unquote_plus(name.group(1)),
+                log_util.shorten_timestamp(window.group(1)),
+                log_util.shorten_timestamp(window.group(2)),
+            ),
         )
 
     if window:
         return (
             "No values between %s and %s; nothing staged.",
-            (window.group(1), window.group(2)),
+            (
+                log_util.shorten_timestamp(window.group(1)),
+                log_util.shorten_timestamp(window.group(2)),
+            ),
         )
 
     return ("No values in the requested window; nothing staged.", ())
@@ -83,100 +97,101 @@ def _read_env(name: str, default: str) -> str:
     return normalized
 
 
-# Which half of the pipeline is running, for log messages that would otherwise
-# be ambiguous about direction. cwms-python's chunk-retry warning comes from
-# _call_with_retry, which is shared by its fetch *and* store paths, so the
-# message alone cannot say whether a failing chunk was a read from the source or
-# a write to the destination.
-_STAGE = "staging (reading from the source)"
-_PUBLISH = "publishing (writing to the destination)"
-_current_phase: str | None = None
+_STAGE = log_util.EXTRACT
+_PUBLISH = log_util.LOAD
+_phase = log_util.phase
+
+# The words for each direction, for library messages that describe a request
+# without saying which way it went.
+_DIRECTIONS = {
+    log_util.EXTRACT: "reading from the source",
+    log_util.LOAD: "writing to the destination",
+}
 
 
-@contextmanager
-def _phase(name: str) -> Iterator[None]:
-    global _current_phase
-    previous = _current_phase
-    _current_phase = name
-    try:
-        yield
-    finally:
-        _current_phase = previous
+def _direction() -> str:
+    phase = log_util.current_phase()
+    if phase is None:
+        return "an unknown phase"
+
+    return f"{phase} ({_DIRECTIONS[phase]})"
 
 
 class _FriendlyCdaLogFilter(logging.Filter):
     def filter(self, record: logging.LogRecord) -> bool:
         message = record.getMessage()
 
+        if "CDA Error: response=" in message or message.startswith("Failed to fetch data"):
+            record.name = "cwms"
+
         if "CDA Error: response=" in message:
-            # cwms.api logs this at ERROR on the root logger for any non-ok
-            # response, before raising. The wording below is ours; the severity
-            # was not, which meant one not-found produced an INFO line from the
-            # caller and an ERROR line from here for the same event.
             match = _RESPONSE_STATUS_PATTERN.search(message)
             status_code = match.group(1) if match else "unknown"
 
             if status_code == "404":
-                # Not-found is a modelled outcome throughout cda-etl: a
-                # timeseries with no values in the window, a rating or location
-                # level a project does not have. The caller decides, and either
-                # skips it or lets it abort the run.
-                record.levelno = logging.INFO
-                record.levelname = "INFO"
+                record.levelno = logging.DEBUG
+                record.levelname = "DEBUG"
                 record.msg = (
-                    "CWMS API request returned HTTP 404 (nothing found). Whether that matters "
-                    "is decided by the caller; see the next log line."
+                    "CWMS API request returned HTTP 404 (nothing found); the caller decides "
+                    "whether that matters and reports it."
                 )
                 record.args = ()
-                return True
+                return logging.getLogger().isEnabledFor(logging.DEBUG)
 
+            if status_code == "500" and utils.cda_errors.in_ratings_request():
+                record.levelno = logging.DEBUG
+                record.levelname = "DEBUG"
+                record.msg = (
+                    "CWMS API request returned HTTP 500 during a ratings request; the caller "
+                    "decides whether that means the rating is absent and reports it."
+                )
+                record.args = ()
+                return logging.getLogger().isEnabledFor(logging.DEBUG)
+            record.levelno = logging.DEBUG
+            record.levelname = "DEBUG"
             record.msg = (
-                "CWMS API request returned HTTP %s. "
-                "See the next log line for endpoint and server details."
+                "CWMS API request returned HTTP %s during %s; "
+                "the caller reports the outcome."
             )
-            record.args = (status_code,)
-            return True
+            record.args = (status_code, _direction())
+            return logging.getLogger().isEnabledFor(logging.DEBUG)
 
-        # cwms-python's fetch_timeseries_chunks logs at ERROR before raising, so
-        # a 404 - "no values in this window" - arrives as "Failed to fetch data",
-        # which reads like a fault. timeseries._download_one_ts_data treats that
-        # case as normal and stages nothing, so soften the log to match. The
-        # hint string is only produced for 404.
-        #
-        # Missing timeseries are expected in bulk, so this line stays short:
-        # name and window only. The URL, incident identifier and details object
-        # in the original message are diagnostics for a failure, and this is not
-        # one.
         if message.startswith("Failed to fetch data") and (
             "May be the result of an empty query." in message
             or '"message":"Not found."' in message
         ):
-            record.levelno = logging.INFO
-            record.levelname = "INFO"
+            record.levelno = logging.DEBUG
+            record.levelname = "DEBUG"
             record.msg, record.args = _no_data_window_summary(message)
-            return True
+            return logging.getLogger().isEnabledFor(logging.DEBUG)
 
         if message.startswith("chunk attempt") and "CWMS API Error" in message:
-            # Do not guess the direction. This warning previously said "upload"
-            # unconditionally, which sent people looking at DEST_CDA_URL for
-            # what was actually a failed read from the source.
-            phase = _current_phase or "an unknown phase"
-            record.msg = (
-                "Timeseries chunk failed during %s and will be retried. "
-                "The URL in the details below is the one that failed. Details: %s"
-            )
-            record.args = (phase, message)
+            record.name = "cwms"
+            record.msg = "Timeseries chunk failed during %s and will be retried: %s"
+            record.args = (_direction(), message)
             return True
 
         return True
 
 
-def pipeline(config: DownloadConfig, session_manager: SessionManager) -> None:
-    if session_manager.has_source_session:
-        with session_manager.source_session(), _phase(_STAGE):
-            for office in config.offices(enabled_only=True):
-                logger.info(f"Processing office {office.id}")
+def _scope_of(config: DownloadConfig) -> str:
+    offices = list(config.offices(enabled_only=True))
+    projects = sum(len(list(office.projects(enabled_only=True))) for office in offices)
 
+    return f"{log_util.plural(len(offices), 'office')}, {log_util.plural(projects, 'project')}"
+
+
+def pipeline(config: DownloadConfig, session_manager: SessionManager) -> None:
+    scope = _scope_of(config)
+    covered = log_util.window(config.settings.start_time, config.settings.end_time)
+
+    if session_manager.has_source_session:
+        with session_manager.source_session(), _phase(
+            _STAGE,
+            endpoint=session_manager.endpoints.source_cda_url,
+            detail=f"window {covered}  |  {scope}",
+        ):
+            for office in config.offices(enabled_only=True):
                 _stage_office_data(office)
 
                 for project_config in office.projects(enabled_only=True):
@@ -184,10 +199,12 @@ def pipeline(config: DownloadConfig, session_manager: SessionManager) -> None:
     else:
         logger.info("SOURCE_CDA_URL is not configured; skipping source download and using staged files only.")
 
-    with session_manager.dest_session(), _phase(_PUBLISH):
+    with session_manager.dest_session(), _phase(
+        _PUBLISH,
+        endpoint=session_manager.endpoints.dest_cda_url,
+        detail=f"window {covered}  |  {scope}",
+    ):
         for office in config.offices(enabled_only=True):
-            logger.info(f"Publishing office {office.id}")
-
             _publish_office_data(office)
 
             for project_config in office.projects(enabled_only=True):
@@ -198,12 +215,10 @@ def _stage_office_data(office_config: OfficeConfig) -> None:
     office_properties = list(office_config.properties(enabled_only=True))
 
     logger.info(
-        "Stage inputs for office %s: %d global propert(y/ies)",
+        "Office %s: %s configured globally",
         office_config.id,
-        len(office_properties),
+        log_util.plural(len(office_properties), "property"),
     )
-
-    logger.info("Staging global properties for office %s", office_config.id)
     property.stage_properties(office_config.id, office_properties)
 
 
@@ -211,66 +226,63 @@ def _publish_office_data(office_config: OfficeConfig) -> None:
     office_properties = list(office_config.properties(enabled_only=True))
 
     logger.info(
-        "Publish inputs for office %s: %d global propert(y/ies)",
+        "Office %s: %s configured globally",
         office_config.id,
-        len(office_properties),
+        log_util.plural(len(office_properties), "property"),
     )
-
-    logger.info("Publishing global properties for office %s", office_config.id)
     property.publish_staged_properties(office_config.id, office_properties)
 
 
+def _project_inputs(project_config: ProjectConfig) -> dict[str, list]:
+    return {
+        "location": list(project_config.locations(enabled_only=True)),
+        "timeseries": list(project_config.timeseries(enabled_only=True)),
+        "clob": list(project_config.clobs(enabled_only=True)),
+        "location level": list(project_config.location_levels(enabled_only=True)),
+        "rating": list(project_config.ratings(enabled_only=True)),
+        "property": list(project_config.properties(enabled_only=True)),
+    }
+
+
+def _log_project_header(project_config: ProjectConfig, inputs: dict[str, list]) -> None:
+    present = [log_util.plural(len(items), noun) for noun, items in inputs.items() if items]
+
+    logger.info("%s: %s", project_config.qualified_id, ", ".join(present) or "nothing configured")
+
+
 def _stage_project_data(project_config: ProjectConfig, config: DownloadConfig) -> None:
-    logger.info(f"Staging project {project_config.qualified_id}")
+    inputs = _project_inputs(project_config)
+    _log_project_header(project_config, inputs)
+    started = time.monotonic()
 
-    project_locations = list(project_config.locations(enabled_only=True))
-    project_timeseries = list(project_config.timeseries(enabled_only=True))
-    project_clobs = list(project_config.clobs(enabled_only=True))
-    project_levels = list(project_config.location_levels(enabled_only=True))
-    project_ratings = list(project_config.ratings(enabled_only=True))
-    project_properties = list(project_config.properties(enabled_only=True))
-
-    logger.info(
-        "Stage inputs for %s: %d location(s), %d timeseries item(s), %d clob(s), %d location level(s), %d rating(s), %d propert(y/ies)",
-        project_config.qualified_id,
-        len(project_locations),
-        len(project_timeseries),
-        len(project_clobs),
-        len(project_levels),
-        len(project_ratings),
-        len(project_properties),
-    )
-
-    logger.info("Staging locations for project %s", project_config.qualified_id)
-    location.stage_locations(project_config.office_id, project_locations)
-    logger.info("Staging project record for %s", project_config.qualified_id)
+    location.stage_locations(project_config.office_id, inputs["location"])
     project.stage_projects([project_config])
-    logger.info("Staging timeseries data for project %s", project_config.qualified_id)
     timeseries.stage_timeseries(
         project_config.office_id,
-        project_timeseries,
+        inputs["timeseries"],
         config.settings.start_time,
         config.settings.end_time,
     )
-    logger.info("Staging clobs for project %s", project_config.qualified_id)
-    clob.stage_clobs(project_config.office_id, project_clobs)
-    logger.info("Staging location levels for project %s", project_config.qualified_id)
+    clob.stage_clobs(project_config.office_id, inputs["clob"])
     location_level.stage_location_levels(
         project_config.office_id,
-        project_levels,
+        inputs["location level"],
         config.settings.start_time,
         config.settings.end_time,
     )
-    logger.info("Staging ratings for project %s", project_config.qualified_id)
     rating.stage_ratings(
         project_config.office_id,
-        project_ratings,
+        inputs["rating"],
         config.settings.start_time,
         config.settings.end_time,
     )
-    logger.info("Staging properties for project %s", project_config.qualified_id)
-    property.stage_properties(project_config.office_id, project_properties)
-    logger.info("Completed staging for project %s", project_config.qualified_id)
+    property.stage_properties(project_config.office_id, inputs["property"])
+
+    logger.info(
+        "%s extracted in %s",
+        project_config.qualified_id,
+        log_util.duration(time.monotonic() - started),
+    )
 
 
 def _log_startup_configuration(config: DownloadConfig, session_manager: SessionManager) -> None:
@@ -279,63 +291,50 @@ def _log_startup_configuration(config: DownloadConfig, session_manager: SessionM
     start_time = config.settings.start_time or _NOT_CONFIGURED
     end_time = config.settings.end_time or _NOT_CONFIGURED
 
-    logger.info("Startup configuration")
-    logger.info("  Data source      : %s", source_url)
-    logger.info("  Data destination : %s", dest_url)
-    logger.info("  Time window      : start=%s end=%s", start_time, end_time)
+    logger.info(
+        "Startup configuration\n"
+        "  Data source      : %s\n"
+        "  Data destination : %s\n"
+        "  Time window      : %s",
+        source_url,
+        dest_url,
+        log_util.window(start_time, end_time),
+    )
 
 
 def _publish_project_data(project_config: ProjectConfig, config: DownloadConfig) -> None:
-    logger.info(f"Publishing project {project_config.qualified_id}")
+    inputs = _project_inputs(project_config)
+    _log_project_header(project_config, inputs)
+    started = time.monotonic()
 
-    project_locations = list(project_config.locations(enabled_only=True))
-    project_timeseries = list(project_config.timeseries(enabled_only=True))
-    project_clobs = list(project_config.clobs(enabled_only=True))
-    project_levels = list(project_config.location_levels(enabled_only=True))
-    project_ratings = list(project_config.ratings(enabled_only=True))
-    project_properties = list(project_config.properties(enabled_only=True))
-
-    logger.info(
-        "Publish inputs for %s: %d location(s), %d timeseries item(s), %d clob(s), %d location level(s), %d rating(s), %d propert(y/ies)",
-        project_config.qualified_id,
-        len(project_locations),
-        len(project_timeseries),
-        len(project_clobs),
-        len(project_levels),
-        len(project_ratings),
-        len(project_properties),
-    )
-
-    logger.info("Publishing locations for project %s", project_config.qualified_id)
-    location.publish_staged_locations(project_config.office_id, project_locations)
-    logger.info("Publishing project record for %s", project_config.qualified_id)
+    location.publish_staged_locations(project_config.office_id, inputs["location"])
     project.publish_staged_projects([project_config])
-    logger.info("Publishing timeseries data for project %s", project_config.qualified_id)
     timeseries.publish_staged_timeseries(
         project_config.office_id,
-        project_timeseries,
+        inputs["timeseries"],
         config.settings.start_time,
         config.settings.end_time,
     )
-    logger.info("Publishing clobs for project %s", project_config.qualified_id)
-    clob.publish_staged_clobs(project_config.office_id, project_clobs)
-    logger.info("Publishing location levels for project %s", project_config.qualified_id)
+    clob.publish_staged_clobs(project_config.office_id, inputs["clob"])
     location_level.publish_staged_location_levels(
         project_config.office_id,
-        project_levels,
+        inputs["location level"],
         config.settings.start_time,
         config.settings.end_time,
     )
-    logger.info("Publishing ratings for project %s", project_config.qualified_id)
     rating.publish_staged_ratings(
         project_config.office_id,
-        project_ratings,
+        inputs["rating"],
         config.settings.start_time,
         config.settings.end_time,
     )
-    logger.info("Publishing properties for project %s", project_config.qualified_id)
-    property.publish_staged_properties(project_config.office_id, project_properties)
-    logger.info("Completed publish for project %s", project_config.qualified_id)
+    property.publish_staged_properties(project_config.office_id, inputs["property"])
+
+    logger.info(
+        "%s loaded in %s",
+        project_config.qualified_id,
+        log_util.duration(time.monotonic() - started),
+    )
 
 
 def _initialize_runtime():
@@ -362,6 +361,9 @@ def _initialize_runtime():
 
     config_log_level = getattr(logging, config.settings.log_level.upper(), logging.INFO)
     logging.getLogger().setLevel(config_log_level)
+
+    log_util.reformat(config_log_level)
+
     _log_startup_configuration(config, session_manager)
 
     return config, session_manager
@@ -374,7 +376,8 @@ if __name__ == "__main__":
     log_level_str = _read_env("LOG_LEVEL", "INFO").upper()
     log_level = getattr(logging, log_level_str, logging.INFO)
 
-    logging.basicConfig(level=log_level)
+    log_util.configure(log_level)
+
     for handler in logging.getLogger().handlers:
         handler.addFilter(_FriendlyCdaLogFilter())
 

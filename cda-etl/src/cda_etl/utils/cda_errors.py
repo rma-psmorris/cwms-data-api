@@ -32,6 +32,9 @@ status code where the type survives, and the message where it does not.
 from __future__ import annotations
 
 import logging
+import threading
+from contextlib import contextmanager
+from typing import Iterator
 
 logger = logging.getLogger(__name__)
 
@@ -91,4 +94,31 @@ def is_ambiguous_rating_failure(error: BaseException) -> bool:
     )
 
 
-__all__ = ["is_ambiguous_rating_failure", "is_no_data", "status_code_of"]
+_local = threading.local()
+
+
+@contextmanager
+def ratings_request() -> Iterator[None]:
+    previous = in_ratings_request()
+    _local.in_ratings_request = True
+    try:
+        yield
+    finally:
+        _local.in_ratings_request = previous
+
+
+def in_ratings_request() -> bool:
+    """
+    True while this thread is inside a call to the ratings endpoints, where a 500
+    is more likely to mean "no such rating" than a fault.
+    """
+    return getattr(_local, "in_ratings_request", False)
+
+
+__all__ = [
+    "in_ratings_request",
+    "is_ambiguous_rating_failure",
+    "is_no_data",
+    "ratings_request",
+    "status_code_of",
+]

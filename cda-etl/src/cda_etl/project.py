@@ -26,35 +26,35 @@ from config import ProjectConfig
 logger = logging.getLogger(__name__)
 
 
+def _label(work_item) -> str:
+    return f"{work_item[0]}.{work_item[1]}"
+
+
 def stage_projects(projects: Iterable[ProjectConfig]) -> None:
     project_ids = [[project.office_id, project.id] for project in projects]
 
     if not project_ids:
-        logger.warning("No valid project identifiers found for processing")
+        logger.debug("No project records to extract.")
         return
 
-    logger.info("Staging %d project record(s)", len(project_ids))
-    threading_util.execute_tasks(_download_one_project, project_ids)
-    logger.info("Completed staging project records")
+    threading_util.execute_tasks(_download_one_project, project_ids, label=_label)
 
 
 def publish_staged_projects(projects: Iterable[ProjectConfig]) -> None:
     project_ids = [[project.office_id, project.id] for project in projects]
 
     if not project_ids:
-        logger.warning("No valid project identifiers found for processing")
+        logger.debug("No project records to load.")
         return
 
-    logger.info("Publishing %d staged project record(s)", len(project_ids))
-    threading_util.execute_tasks(_upload_one_project, project_ids)
-    logger.info("Completed publishing project records")
+    threading_util.execute_tasks(_upload_one_project, project_ids, label=_label)
 
 
 def _download_one_project(project):
     office_id = project[0]
     project_id = project[1]
 
-    logger.info("Refreshing staged project record %s %s", office_id, project_id)
+    logger.info("Extracting project record %s %s", office_id, project_id)
     project_data = cwms.api.get(
         endpoint=f"projects/{project_id}",
         params={"office": office_id},

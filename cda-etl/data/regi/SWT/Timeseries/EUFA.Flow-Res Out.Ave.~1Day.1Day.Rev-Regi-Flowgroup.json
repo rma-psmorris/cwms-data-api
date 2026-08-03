@@ -6,7 +6,7 @@
   "interval-offset": -2147483648,
   "name": "EUFA.Flow-Res Out.Ave.~1Day.1Day.Rev-Regi-Flowgroup",
   "office-id": "SWT",
-  "page": "MTc4MjcwOTIwMDAwMHx8MTR8fDMwMDAwMA==",
+  "page": "MTc4MDI5MDAwMDAwMHx8MTR8fDMwMDAwMA==",
   "page-size": 300000,
   "time-zone": "US/Central",
   "total": 64,
@@ -311,7 +311,7 @@
     ],
     [
       1785128400000,
-      5470.207307589303,
+      5487.064252033748,
       0
     ],
     [

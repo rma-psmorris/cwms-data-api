@@ -1,15 +1,15 @@
 {
   "begin": "2026-06-01T00:00:00+00:00",
   "date-version-type": "UNVERSIONED",
-  "end": "2026-08-03T10:00:00+00:00",
+  "end": "2026-08-03T11:00:00+00:00",
   "interval": "PT1H",
   "interval-offset": 0,
   "name": "EUFA.Elev.Inst.1Hour.0.Ccp-Rev",
   "office-id": "SWT",
-  "page": "MTc4MzkwMDgwMDAwMHx8MzM3fHwzMDAwMDA=",
+  "page": "MTc4NTExMDQwMDAwMHx8MTgwfHwzMDAwMDA=",
   "page-size": 300000,
   "time-zone": "US/Central",
-  "total": 1523,
+  "total": 1524,
   "units": "ft",
   "value-columns": [
     {
@@ -7641,6 +7641,11 @@
     ],
     [
       1785751200000,
+      584.8299999999999,
+      0
+    ],
+    [
+      1785754800000,
       584.8299999999999,
       0
     ]

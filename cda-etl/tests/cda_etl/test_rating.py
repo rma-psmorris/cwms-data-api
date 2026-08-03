@@ -87,7 +87,7 @@ def test_missing_rating_curve_is_not_a_failure(mocker, caplog):
     item, because execute_tasks turns a hard failure into an aborted run.
     """
     import logging
-    caplog.set_level(logging.INFO)
+    caplog.set_level(logging.DEBUG)
     mocker.patch("cwms.get_ratings_xml", side_effect=_api_error(404, '{"message":"Not found."}'))
     mock_write = mocker.patch("utils.filesystem_store.write_json")
 
@@ -102,7 +102,7 @@ def test_missing_rating_curve_is_not_a_failure(mocker, caplog):
 
 def test_missing_por_rating_curve_is_not_a_failure(mocker, caplog):
     import logging
-    caplog.set_level(logging.INFO)
+    caplog.set_level(logging.DEBUG)
     mocker.patch("cwms.get_ratings_xml", side_effect=_api_error(404, '{"message":"Not found."}'))
     mock_write = mocker.patch("utils.filesystem_store.write_json")
 
@@ -293,3 +293,32 @@ def test_the_windowed_path_also_stores_the_template(mocker):
     rating._upload_one_rating(["SWT", "EUFA.Elev;Area.Linear.Production", begin, end, False])
 
     assert mock_store.call_args.kwargs["store_template"] is True
+
+
+def test_nothing_configured_is_not_a_warning(caplog):
+    import logging
+    caplog.set_level(logging.DEBUG)
+
+    rating.stage_ratings("SWT", [], "2026-06-01", "2026-08-03")
+    rating.publish_staged_ratings("SWT", [], "2026-06-01", "2026-08-03")
+
+    assert not [r for r in caplog.records if r.levelno >= logging.WARNING]
+
+
+def test_the_inferred_missing_rating_says_it_is_a_guess(caplog):
+    """
+    This 500 is indistinguishable from a genuine processing failure, so a reader
+    who takes "no rating curve" at face value will not know to check. That was the
+    one thing the line did not say.
+    """
+    import logging
+    caplog.set_level(logging.WARNING)
+    error = _api_error(500, AMBIGUOUS_500)
+
+    assert rating._handle_missing_rating(error, "EUFA.Stage;Flow.Standard.Production", "SWT", "") is True
+
+    message = caplog.text
+
+    assert "guess" in message
+    assert "500" in message
+    assert "RatingController" not in message

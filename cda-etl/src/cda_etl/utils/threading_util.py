@@ -16,9 +16,11 @@
 #  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 #  SOFTWARE.
 import logging
-import traceback
 from datetime import datetime
 from concurrent.futures import as_completed, ThreadPoolExecutor
+from typing import Callable
+
+import utils.log_util as log_util
 
 logger = logging.getLogger(__name__)
 
@@ -33,7 +35,7 @@ def _format_part(part):
     # Work items carry datetimes; str() on those spells out microseconds, which
     # is noise in a log line that already names the window.
     if isinstance(part, datetime):
-        return part.strftime("%Y-%m-%d %H:%M:%S")
+        return log_util.display(part)
 
     return str(part)
 
@@ -44,7 +46,25 @@ def _format_item(item):
     return _format_part(item)
 
 
-def _friendly_exception_message(item, exc):
+class BatchResult:
+    """
+    What a batch did, so the caller can account for it in one line instead of
+    logging "Completed <verb> <resource> for office <id>" - which reported only
+    that the code reached the end of the function.
+    """
+
+    __slots__ = ("total", "skipped")
+
+    def __init__(self, total: int, skipped: int) -> None:
+        self.total = total
+        self.skipped = skipped
+
+    @property
+    def succeeded(self) -> int:
+        return self.total - self.skipped
+
+
+def _friendly_exception_message(item, exc, label_of):
     """
     Frames an item's failure for the log.
 
@@ -53,7 +73,7 @@ def _friendly_exception_message(item, exc):
     what the item does not already say. The batch-level advice about running the
     stage phase is logged once per batch rather than once per item.
     """
-    item_str = _format_item(item)
+    item_str = label_of(item)
     details = str(exc)
 
     if isinstance(exc, FileNotFoundError):
@@ -71,10 +91,11 @@ class TaskExecutionError(RuntimeError):
     missing staged data.
     """
 
-    def __init__(self, failures: list[tuple[object, BaseException]]):
+    def __init__(self, failures: list[tuple[object, BaseException]], label_of=None):
         self.failures = failures
+        render = label_of or _format_item
         summary = "; ".join(
-            f"{_format_item(item)}: {exc}" for item, exc in failures[:_MAX_REPORTED_FAILURES]
+            f"{render(item)}: {exc}" for item, exc in failures[:_MAX_REPORTED_FAILURES]
         )
         remainder = len(failures) - _MAX_REPORTED_FAILURES
         if remainder > 0:
@@ -86,7 +107,12 @@ class TaskExecutionError(RuntimeError):
 _MAX_REPORTED_FAILURES = 5
 
 
-def execute_tasks(task_func, items):
+def execute_tasks(
+    task_func,
+    items,
+    label: Callable[[object], str] | None = None,
+    tally: "log_util.Tally | None" = None,
+) -> BatchResult:
     """
     Runs task_func over items on the shared executor.
 
@@ -99,7 +125,17 @@ def execute_tasks(task_func, items):
     A missing staged file (FileNotFoundError) stays a warning rather than a
     failure - that is the modelled "this item was not staged, skip it" case,
     and it already has its own message.
+
+    ``label`` renders a work item as the identifier it was announced under, so a
+    skip or a failure can be matched to the item by eye. Without it the log falls
+    back to the item's internal shape.
+
+    ``tally`` collects the skipped items so the caller's one-line account can
+    report them, in place of the batch warning this used to emit next to that
+    line.
     """
+    label_of = label or _format_item
+
     futures_to_items = {
         _EXECUTOR.submit(task_func, item): item
         for item in items
@@ -113,32 +149,27 @@ def execute_tasks(task_func, items):
         exception = future.exception()
 
         if exception is None:
-            logger.debug(f"No error on execution for {item}")
+            logger.debug("Completed %s", label_of(item))
             continue
 
-        message = _friendly_exception_message(item, exception)
+        message = _friendly_exception_message(item, exception, label_of)
 
         if isinstance(exception, FileNotFoundError):
             skipped += 1
-            logger.warning(message)
+            logger.debug(message)
+
+            if tally is not None:
+                tally.record(log_util.NOTHING_STAGED, label_of(item))
+
             continue
 
         logger.error(message)
         failures.append((item, exception))
 
-    if skipped:
-        # Once per batch, not once per item: with a whole association category
-        # applied to every project, dozens of items can legitimately have nothing
-        # staged, and repeating the advice on each line buries it.
-        logger.warning(
-            "Skipped %d of %d item(s) with no staged data. If that is unexpected, run the "
-            "stage phase for this window first, or check the config.",
-            skipped,
-            len(futures_to_items),
-        )
-
     if failures:
-        raise TaskExecutionError(failures)
+        raise TaskExecutionError(failures, label_of)
+
+    return BatchResult(total=len(futures_to_items), skipped=skipped)
 
 
-__all__ = ["TaskExecutionError", "execute_tasks", "init_executor"]
+__all__ = ["BatchResult", "TaskExecutionError", "execute_tasks", "init_executor"]

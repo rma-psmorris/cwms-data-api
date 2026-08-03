@@ -98,7 +98,92 @@ def test_a_500_is_still_retried(patched, caplog):
         patched(fn)
 
     assert len(calls) == cwms_ts._CHUNK_ATTEMPTS
-    assert "chunk attempt 1/6 failed" in caplog.text
+
+    # One line per chunk, not two per attempt. The per-attempt detail is DEBUG;
+    # what survives at WARNING is the outcome, and the attempt count and elapsed
+    # backoff - which is the part the caller's own error report does not have.
+    warnings = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
+
+    assert len(warnings) == 1
+    assert "Gave up" in warnings[0]
+    assert "after 6 attempts" in warnings[0]
+    assert "Database Error" in warnings[0]
+
+
+def test_per_attempt_detail_is_debug_only(patched, caplog):
+    """
+    Six attempts previously meant twelve lines: an ERROR from cwms.api about the
+    status code and a WARNING here, per attempt.
+    """
+    caplog.set_level(logging.DEBUG)
+
+    def fn():
+        raise _api_error(500, '{"message":"Database Error"}')
+
+    with pytest.raises(cwms.api.ApiError):
+        patched(fn)
+
+    attempts = [r for r in caplog.records if "Chunk attempt" in r.getMessage()]
+
+    assert len(attempts) == cwms_ts._CHUNK_ATTEMPTS
+    assert {r.levelno for r in attempts} == {logging.DEBUG}
+
+
+def test_a_recovered_chunk_is_reported_once_and_is_not_an_error(patched, caplog):
+    """
+    A chunk that fails twice and then succeeds is not a failure - but a source
+    needing three tries is worth knowing about, and staying silent made a slow run
+    look inexplicable.
+    """
+    caplog.set_level(logging.DEBUG)
+    calls = []
+
+    def fn():
+        calls.append(1)
+        if len(calls) < 3:
+            raise _api_error(500, '{"message":"Database Error","incidentIdentifier":"a1c588a8-bd94"}')
+        return "data"
+
+    assert patched(fn) == "data"
+
+    warnings = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
+
+    assert len(warnings) == 1
+    assert "Recovered" in warnings[0]
+    assert "on attempt 3 of 6" in warnings[0]
+    assert "incident a1c588a8" in warnings[0]
+    assert not [r for r in caplog.records if r.levelno >= logging.ERROR]
+
+
+def test_the_retry_line_names_the_timeseries_and_window_not_the_url(patched, caplog):
+    """
+    The percent-encoded query string was ~200 characters of unreadable diagnostics
+    on a line that repeated twice per attempt. The id and the window *are* the
+    URL, minus the encoding.
+    """
+    caplog.set_level(logging.WARNING)
+    url = (
+        "https://cwms-data-test.cwbi.us/cwms-data/timeseries?office=SWT"
+        "&name=EUFA.Dir-Wind+Alt.Inst.1Hour.0.Ccp-Rev&unit=EN"
+        "&begin=2026-07-27T00%3A00%3A00%2B00%3A00"
+        "&end=2026-08-03T10%3A47%3A04.197489%2B00%3A00&page-size=300000&trim=True"
+    )
+    calls = []
+
+    def fn():
+        calls.append(1)
+        if len(calls) < 2:
+            raise RuntimeError(f'CWMS API Error ({url}). {{"message":"System Error"}}')
+        return "data"
+
+    patched(fn)
+
+    message = next(r.getMessage() for r in caplog.records if r.levelno == logging.WARNING)
+
+    assert "EUFA.Dir-Wind Alt.Inst.1Hour.0.Ccp-Rev" in message
+    assert "2026-07-27 00:00 to 2026-08-03 10:47" in message
+    assert "%3A" not in message
+    assert "page-size" not in message
 
 
 def test_a_transient_500_still_recovers(patched):

@@ -119,18 +119,45 @@ def test_no_values_in_window_is_not_a_failure(mocker, caplog):
     categories apply to every project. It must not fail the item, because
     execute_tasks turns a hard failure into an aborted run.
     """
-    import logging
-    caplog.set_level(logging.INFO)
     mocker.patch("cwms.get_timeseries", side_effect=_api_error(404, '{"message":"Not found."}'))
     mock_write = mocker.patch("utils.filesystem_store.write_json")
+    tally = timeseries._start_batch()
 
     begin = timeseries._parse_timestamp("2026-07-01", "start")
     end = timeseries._parse_timestamp("2026-07-15", "end")
 
     timeseries._download_one_ts_data(["SWT", "EUFA.Count-Lockages.Total.~1Day.1Day.Rev-Manual", begin, end])
 
-    assert "nothing staged" in caplog.text
+    # Tallied rather than logged: with association categories applied to every
+    # project this outcome arrives in bulk, and the batch reports the count once.
+    assert tally.labels(timeseries._NOT_FOUND) == [
+        "EUFA.Count-Lockages.Total.~1Day.1Day.Rev-Manual"
+    ]
     mock_write.assert_not_called()
+
+
+def test_a_404_and_an_empty_window_are_tallied_separately(mocker):
+    """
+    They are different events - the id is absent, versus the id exists and this
+    window is empty - and the two messages used to be worded so similarly that the
+    difference read as sloppiness. Distinct reasons state it without a line each.
+    """
+    tally = timeseries._start_batch()
+    mocker.patch("utils.filesystem_store.write_json")
+    begin = timeseries._parse_timestamp("2026-07-01", "start")
+    end = timeseries._parse_timestamp("2026-07-15", "end")
+
+    mocker.patch("cwms.get_timeseries", side_effect=_api_error(404, '{"message":"Not found."}'))
+    timeseries._download_one_ts_data(["SWT", "EUFA.Absent.Inst.1Hour.0.Raw", begin, end])
+
+    empty = MagicMock()
+    empty.json = {"name": "EUFA.Empty.Inst.1Hour.0.Raw", "office-id": "SWT", "values": []}
+    mocker.patch("cwms.get_timeseries", return_value=empty)
+    timeseries._download_one_ts_data(["SWT", "EUFA.Empty.Inst.1Hour.0.Raw", begin, end])
+
+    assert tally.labels(timeseries._NOT_FOUND) == ["EUFA.Absent.Inst.1Hour.0.Raw"]
+    assert tally.labels(timeseries._EMPTY_WINDOW) == ["EUFA.Empty.Inst.1Hour.0.Raw"]
+    assert timeseries._NOT_FOUND != timeseries._EMPTY_WINDOW
 
 
 def test_chunked_not_found_is_also_tolerated(mocker):
@@ -196,13 +223,12 @@ def test_empty_values_are_not_staged(mocker, caplog):
     the window - distinct from the 404 it gives when there is no data at all.
     Writing that file gives publish something it can never usefully send.
     """
-    import logging
-    caplog.set_level(logging.INFO)
     response = MagicMock()
     response.json = {"name": "EUFA.Elev.Inst.1Hour.0.Decodes-Raw", "office-id": "SWT",
                      "units": "ft", "values": []}
     mocker.patch("cwms.get_timeseries", return_value=response)
     mock_write = mocker.patch("utils.filesystem_store.write_json")
+    tally = timeseries._start_batch()
 
     begin = timeseries._parse_timestamp("2026-07-01", "start")
     end = timeseries._parse_timestamp("2026-07-15", "end")
@@ -210,7 +236,7 @@ def test_empty_values_are_not_staged(mocker, caplog):
     timeseries._download_one_ts_data(["SWT", "EUFA.Elev.Inst.1Hour.0.Decodes-Raw", begin, end])
 
     mock_write.assert_not_called()
-    assert "no values" in caplog.text.lower()
+    assert tally.labels(timeseries._EMPTY_WINDOW) == ["EUFA.Elev.Inst.1Hour.0.Decodes-Raw"]
 
 
 def test_values_present_are_staged(mocker):
@@ -253,14 +279,13 @@ def test_a_staged_empty_payload_is_not_published(mocker, caplog):
     min(max_workers, len(chunks)), so zero values means zero chunks and
     ThreadPoolExecutor(max_workers=0) raises "max_workers must be greater than 0".
     """
-    import logging
-    caplog.set_level(logging.INFO)
     mocker.patch(
         "utils.filesystem_store.read_json",
         return_value={"name": "EUFA.Text.Inst.~1Day.0.Wcds-Rev", "office-id": "SWT",
                       "units": "", "values": []},
     )
     mock_store = mocker.patch("cwms.store_timeseries")
+    tally = timeseries._start_batch()
 
     begin = timeseries._parse_timestamp("2026-07-01", "start")
     end = timeseries._parse_timestamp("2026-07-15", "end")
@@ -268,7 +293,7 @@ def test_a_staged_empty_payload_is_not_published(mocker, caplog):
     timeseries._upload_one_ts_data(["SWT", "EUFA.Text.Inst.~1Day.0.Wcds-Rev", begin, end])
 
     mock_store.assert_not_called()
-    assert "nothing to publish" in caplog.text.lower()
+    assert tally.labels(timeseries._STAGED_EMPTY) == ["EUFA.Text.Inst.~1Day.0.Wcds-Rev"]
 
 
 def test_a_staged_payload_with_values_is_published(mocker):
@@ -308,3 +333,67 @@ def test_the_real_max_workers_crash_no_longer_reproduces(mocker):
 
     # No exception.
     timeseries._upload_one_ts_data(["SWT", "EUFA.Stor.Inst.1Hour.0.Ccp-Raw", begin, end])
+
+
+def test_duplicate_config_ids_are_deduplicated_and_reported(caplog):
+    """
+    A duplicate id was invisible and not free: the same window was fetched from the
+    source twice, written to the same staged file twice and posted to the
+    destination twice. A run over one project had two of them.
+    """
+    import logging
+    caplog.set_level(logging.WARNING)
+    items = [
+        TimeseriesConfig(id="EUFA.Evap.Total.~1Day.1Day.Ccp-Rev", enabled=True, raw={}),
+        TimeseriesConfig(id="EUFA.Elev.Inst.1Hour.0.Ccp-Rev", enabled=True, raw={}),
+        TimeseriesConfig(id="EUFA.Evap.Total.~1Day.1Day.Ccp-Rev", enabled=True, raw={}),
+    ]
+
+    work_items = timeseries._build_timeseries_work_items("SWT", items, "2026-06-01", "2026-08-03")
+
+    assert [item[1] for item in work_items] == [
+        "EUFA.Evap.Total.~1Day.1Day.Ccp-Rev",
+        "EUFA.Elev.Inst.1Hour.0.Ccp-Rev",
+    ]
+    assert "appears more than once" in caplog.text
+    assert "EUFA.Evap.Total.~1Day.1Day.Ccp-Rev" in caplog.text
+
+
+def test_no_duplicates_means_no_warning(caplog):
+    import logging
+    caplog.set_level(logging.WARNING)
+    items = [
+        TimeseriesConfig(id="EUFA.Evap.Total.~1Day.1Day.Ccp-Rev", enabled=True, raw={}),
+        TimeseriesConfig(id="EUFA.Elev.Inst.1Hour.0.Ccp-Rev", enabled=True, raw={}),
+    ]
+
+    timeseries._build_timeseries_work_items("SWT", items, "2026-06-01", "2026-08-03")
+
+    assert "appears more than once" not in caplog.text
+
+
+def test_nothing_configured_is_not_a_warning(caplog):
+    """
+    Zero configured is a normal config. This warned unconditionally, once per
+    project per phase, straight after the project header line had said zero.
+    """
+    import logging
+    caplog.set_level(logging.DEBUG)
+
+    timeseries.stage_timeseries("SWT", [], "2026-06-01", "2026-08-03")
+    timeseries.publish_staged_timeseries("SWT", [], "2026-06-01", "2026-08-03")
+
+    assert not [r for r in caplog.records if r.levelno >= logging.WARNING]
+    assert "nothing to extract" in caplog.text
+    assert "nothing to load" in caplog.text
+
+
+def test_items_configured_but_all_invalid_is_still_a_warning(caplog):
+    import logging
+    caplog.set_level(logging.WARNING)
+
+    timeseries.stage_timeseries(
+        "SWT", [TimeseriesConfig(id="not-a-timeseries-id", enabled=True, raw={})], "2026-06-01", "2026-08-03"
+    )
+
+    assert "were rejected as invalid" in caplog.text

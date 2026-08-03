@@ -15,6 +15,7 @@
 #  LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 #  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 #  SOFTWARE.
+from unittest.mock import ANY
 from unittest.mock import MagicMock
 
 import clob
@@ -30,6 +31,7 @@ def test_stage_clobs(mocker):
     mock_execute.assert_called_once_with(
         clob._download_one_clob,
         [["SWT", "SWT.EUFA.PROJECT.NOTES"]],
+        label=ANY, tally=ANY,
     )
 
 
@@ -42,6 +44,7 @@ def test_publish_staged_clobs(mocker):
     mock_execute.assert_called_once_with(
         clob._upload_one_clob,
         [["SWT", "SWT.EUFA.PROJECT.NOTES"]],
+        label=ANY, tally=ANY,
     )
 
 
@@ -87,7 +90,7 @@ def test_a_clob_with_no_value_is_not_staged(mocker, caplog):
     FLOW.EUFA.PROJECT_TOTAL staged as {"office-id": "SWT", "id": ...}.
     """
     import logging
-    caplog.set_level(logging.INFO)
+    caplog.set_level(logging.DEBUG)
     response = MagicMock()
     response.json = {"office-id": "SWT", "id": "FLOW.EUFA.PROJECT_TOTAL"}
     mocker.patch("cwms.get_clob", return_value=response)
@@ -131,7 +134,7 @@ def test_a_staged_clob_with_no_value_is_not_published(mocker, caplog):
     older build wrote them.
     """
     import logging
-    caplog.set_level(logging.INFO)
+    caplog.set_level(logging.DEBUG)
     mocker.patch(
         "utils.filesystem_store.read_json",
         return_value={"office-id": "SWT", "id": "FLOW.EUFA.PROJECT_TOTAL"},
@@ -173,3 +176,15 @@ def test_the_real_400_no_longer_reproduces(mocker):
     mocker.patch("cwms.store_clobs", side_effect=AssertionError("should not be called"))
 
     clob._upload_one_clob(["SWT", "FLOW.EUFA.PROJECT_TOTAL"])
+
+
+def test_nothing_configured_is_not_a_warning(caplog):
+    import logging
+    caplog.set_level(logging.DEBUG)
+
+    clob.stage_clobs("SWT", [])
+    clob.publish_staged_clobs("SWT", [])
+
+    assert not [r for r in caplog.records if r.levelno >= logging.WARNING]
+    assert "nothing to extract" in caplog.text
+    assert "nothing to load" in caplog.text

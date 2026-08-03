@@ -15,6 +15,7 @@
 #  LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 #  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 #  SOFTWARE.
+from unittest.mock import ANY
 import property
 from config import PropertyConfig
 
@@ -28,6 +29,7 @@ def test_stage_properties(mocker):
     mock_execute.assert_called_once_with(
         property._download_properties_in_category,
         [["SWT", "REGI", "EUFA.ETL.FLAG"]],
+        label=ANY, tally=ANY,
     )
 
 
@@ -51,6 +53,7 @@ def test_stage_properties_groups_named_ids_into_one_task_per_category(mocker):
             ["SWT", "OTHER", "EUFA.ETL.FLAG"],
             ["SWT", "REGI", "EUFA.ETL.ENABLED", "EUFA.ETL.FLAG"],
         ],
+        label=ANY, tally=ANY,
     )
 
 
@@ -64,6 +67,7 @@ def test_stage_properties_all_in_category(mocker):
     mock_execute.assert_called_once_with(
         property._download_all_properties_in_category,
         [["SWT", "REGI"]],
+        label=ANY, tally=ANY,
     )
 
 
@@ -83,6 +87,7 @@ def test_stage_properties_skips_named_ids_covered_by_an_all_category(mocker):
     mock_execute.assert_called_once_with(
         property._download_all_properties_in_category,
         [["SWT", "REGI"]],
+        label=ANY, tally=ANY,
     )
 
 
@@ -95,6 +100,7 @@ def test_publish_staged_properties(mocker):
     mock_execute.assert_called_once_with(
         property._upload_properties_in_category,
         [["SWT", "REGI", "EUFA.ETL.FLAG"]],
+        label=ANY, tally=ANY,
     )
 
 
@@ -113,6 +119,7 @@ def test_publish_staged_properties_all_in_category(mocker):
     mock_execute.assert_called_once_with(
         property._upload_properties_in_category,
         [["SWT", "REGI"]],
+        label=ANY, tally=ANY,
     )
 
 
@@ -350,3 +357,30 @@ def test_download_all_in_category_uses_mask_parameters(mocker):
         },
         api_version=1,
     )
+
+
+def test_nothing_configured_is_not_a_warning(caplog):
+    """
+    Zero properties configured is a normal config. This warned unconditionally, so
+    a project with no properties produced one false warning for staging and another
+    for publishing - 80 of them over 40 projects, drowning the real ones. There is
+    a real one in the same run: rating.py reporting a missing rating curve.
+    """
+    import logging
+    caplog.set_level(logging.DEBUG)
+
+    property.stage_properties("SWT", [])
+    property.publish_staged_properties("SWT", [])
+
+    assert not [r for r in caplog.records if r.levelno >= logging.WARNING]
+    assert "nothing to extract" in caplog.text
+    assert "nothing to load" in caplog.text
+
+
+def test_properties_configured_but_all_unusable_is_still_a_warning(caplog):
+    import logging
+    caplog.set_level(logging.WARNING)
+
+    property.stage_properties("SWT", [PropertyConfig(category_id="", id="", enabled=True, raw={})])
+
+    assert "missing a category or id" in caplog.text

@@ -17,16 +17,42 @@
 #  SOFTWARE.
 import logging
 import threading
+import time
 from typing import Iterable
 from urllib.parse import quote
 
 import cwms
 import utils.filesystem_store as filesystem_store
+import utils.log_util as log_util
 import utils.threading_util as threading_util
 from config import PropertyConfig
 
 logger = logging.getLogger(__name__)
 PROPERTIES_FOLDER = "Properties"
+
+
+def _label(work_item) -> str:
+    """
+    The category, and how much of it - which is what a property work item is.
+    """
+    category_id = work_item[1]
+    named = len(work_item) - 2
+
+    return f"{category_id} ({log_util.plural(named, 'property')})" if named else f"{category_id} (all)"
+
+
+def _report_nothing_to_do(office_id: str, configured: list, phase: str) -> None:
+    if not configured:
+        logger.debug("No properties configured for office %s; nothing to %s.", office_id, phase)
+        return
+
+    logger.warning(
+        "All %s configured for office %s are missing a category or id; nothing to %s.",
+        log_util.plural(len(configured), "property"),
+        office_id,
+        phase,
+    )
+
 
 # Staging writes one file per category - <office>/Properties/<category>.json,
 # holding a JSON list of property records - rather than one file per property.
@@ -52,23 +78,32 @@ def stage_properties(office_id: str, properties: Iterable[PropertyConfig]) -> No
     ]
 
     if not specific_work_items and not category_work_items:
-        logger.warning("No valid property items found for staging")
+        _report_nothing_to_do(office_id, properties, "extract")
         return
 
-    logger.info(
-        "Staging %d category-wide property group(s) and %d partial category group(s) for office %s",
-        len(category_work_items),
-        len(specific_work_items),
-        office_id,
-    )
+    tally = log_util.Tally()
+    started = time.monotonic()
+    total = len(category_work_items) + len(specific_work_items)
 
     if category_work_items:
-        threading_util.execute_tasks(_download_all_properties_in_category, category_work_items)
+        threading_util.execute_tasks(
+            _download_all_properties_in_category, category_work_items, label=_label, tally=tally
+        )
 
     if specific_work_items:
-        threading_util.execute_tasks(_download_properties_in_category, specific_work_items)
+        threading_util.execute_tasks(
+            _download_properties_in_category, specific_work_items, label=_label, tally=tally
+        )
 
-    logger.info("Completed staging properties for office %s", office_id)
+    log_util.outcome(
+        logger,
+        action="Staged",
+        noun="property category",
+        total=total,
+        tally=tally,
+        office_id=office_id,
+        elapsed=time.monotonic() - started,
+    )
 
 
 def publish_staged_properties(office_id: str, properties: Iterable[PropertyConfig]) -> None:
@@ -85,16 +120,21 @@ def publish_staged_properties(office_id: str, properties: Iterable[PropertyConfi
     )
 
     if not work_items:
-        logger.warning("No valid property items found for publishing")
+        _report_nothing_to_do(office_id, properties, "load")
         return
 
-    logger.info(
-        "Publishing %d staged property category(ies) for office %s",
-        len(work_items),
-        office_id,
+    tally = log_util.Tally()
+    started = time.monotonic()
+    threading_util.execute_tasks(_upload_properties_in_category, work_items, label=_label, tally=tally)
+    log_util.outcome(
+        logger,
+        action="Published",
+        noun="property category",
+        total=len(work_items),
+        tally=tally,
+        office_id=office_id,
+        elapsed=time.monotonic() - started,
     )
-    threading_util.execute_tasks(_upload_properties_in_category, work_items)
-    logger.info("Completed publishing properties for office %s", office_id)
 
 
 def _group_specific_ids(
@@ -121,8 +161,7 @@ def _group_specific_ids(
 
 def _download_all_properties_in_category(work_item: list[str]) -> None:
     office_id, category_id = work_item
-
-    logger.info("Refreshing all staged properties for category %s in office %s", category_id, office_id)
+    logger.debug("Extracting all properties for category %s in office %s", category_id, office_id)
     # The list endpoint takes *-mask parameters (see CDA's
     # PropertyController.getAll: OFFICE_MASK / CATEGORY_ID_MASK / NAME_MASK).
     # "office" and "category-id" belong to the single-property GET; passing
@@ -155,8 +194,8 @@ def _download_all_properties_in_category(work_item: list[str]) -> None:
     # not survive on disk.
     _write_category(office_id, category_id, _sort_entries(entries))
     logger.info(
-        "Staged %d property item(s) for category %s in office %s",
-        len(entries),
+        "Staged %s for category %s in office %s",
+        log_util.plural(len(entries), "property"),
         category_id,
         office_id,
     )
@@ -167,8 +206,8 @@ def _download_properties_in_category(work_item: list[str]) -> None:
     property_ids = list(work_item[2:])
 
     logger.info(
-        "Refreshing %d staged property item(s) for category %s in office %s",
-        len(property_ids),
+        "Extracting %s for category %s in office %s",
+        log_util.plural(len(property_ids), "property"),
         category_id,
         office_id,
     )
@@ -218,8 +257,8 @@ def _upload_properties_in_category(work_item: list[str]) -> None:
         raise FileNotFoundError("No staged property data found.")
 
     logger.info(
-        "Publishing %d property item(s) for category %s in office %s",
-        len(selected),
+        "Publishing %s for category %s in office %s",
+        log_util.plural(len(selected), "property"),
         category_id,
         office_id,
     )

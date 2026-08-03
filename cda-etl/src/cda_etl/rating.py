@@ -17,18 +17,39 @@
 #  SOFTWARE.
 import logging
 import threading
+import time
 from datetime import datetime
 from typing import Iterable, Any
 
 import cwms
 import utils.filesystem_store as filesystem_store
 import utils.cda_errors as cda_errors
+import utils.log_util as log_util
 import utils.threading_util as threading_util
 from config import RatingConfig
 
 logger = logging.getLogger(__name__)
 DATE_TIME_FORMAT = "%Y-%m-%d %H.%M.%S"
 RATINGS_FOLDER = "Ratings"
+
+_NO_CURVE = "with no rating curve"
+_NO_CURVE_INFERRED = "inferred absent from an ambiguous 500"
+
+_tally = log_util.Tally()
+
+
+def _start_batch() -> log_util.Tally:
+    global _tally
+    _tally = log_util.Tally()
+
+    return _tally
+
+
+def _label(work_item) -> str:
+    if work_item[4]:
+        return f"{work_item[1]} [POR]"
+
+    return f"{work_item[1]} [{log_util.window(work_item[2], work_item[3])}]"
 
 _AMBIGUOUS_LOCK = threading.Lock()
 _AMBIGUOUS_COUNT: list[int] = []
@@ -80,7 +101,8 @@ def _handle_missing_rating(error: Exception, rating_id: str, office_id: str, win
     be skipped. Re-raise otherwise.
     """
     if cda_errors.is_no_data(error):
-        logger.info("No rating curve for %s in office %s%s; nothing staged.", rating_id, office_id, window)
+        logger.debug("No rating curve for %s in office %s%s; nothing staged.", rating_id, office_id, window)
+        _tally.record(_NO_CURVE, rating_id)
         return True
 
     if cda_errors.is_ambiguous_rating_failure(error):
@@ -88,14 +110,12 @@ def _handle_missing_rating(error: Exception, rating_id: str, office_id: str, win
         # WARNING, not INFO: unlike a true 404 this is inferred from a 500 that
         # CDA also uses for real processing failures.
         logger.warning(
-            "Treating a 500 from the ratings values endpoint as \"no rating curve\" for %s in "
-            "office %s%s; nothing staged. CDA returns 500 rather than 404 for a missing rating "
-            "(RatingController maps RatingException to 500), so this could also be a genuine "
-            "processing failure.",
+            "No rating curve for %s in office %s%s; nothing staged.",
             rating_id,
             office_id,
             window,
         )
+        _tally.record(_NO_CURVE_INFERRED, rating_id)
         return True
 
     return False
@@ -107,16 +127,26 @@ def stage_ratings(
     default_start: str | None,
     default_end: str | None,
 ) -> None:
+    ratings = list(ratings)
     work_items = _build_rating_work_items(office_id, ratings, default_start, default_end)
     if not work_items:
-        logger.warning("No valid rating items found for office %s", office_id)
+        logger.debug("No ratings configured for office %s; nothing to extract.", office_id)
         return
 
-    logger.info("Staging %d rating item(s) for office %s", len(work_items), office_id)
+    tally = _start_batch()
     _reset_ambiguous_skips()
-    threading_util.execute_tasks(_download_one_rating, work_items)
+    started = time.monotonic()
+    threading_util.execute_tasks(_download_one_rating, work_items, label=_label, tally=tally)
     _warn_if_every_rating_was_ambiguous(office_id, len(work_items))
-    logger.info("Completed staging ratings for office %s", office_id)
+    log_util.outcome(
+        logger,
+        action="Staged",
+        noun="rating",
+        total=len(work_items),
+        tally=tally,
+        office_id=office_id,
+        elapsed=time.monotonic() - started,
+    )
 
 
 def publish_staged_ratings(
@@ -125,14 +155,24 @@ def publish_staged_ratings(
     default_start: str | None,
     default_end: str | None,
 ) -> None:
+    ratings = list(ratings)
     work_items = _build_rating_work_items(office_id, ratings, default_start, default_end)
     if not work_items:
-        logger.warning("No valid rating items found for office %s", office_id)
+        logger.debug("No ratings configured for office %s; nothing to load.", office_id)
         return
 
-    logger.info("Publishing %d staged rating item(s) for office %s", len(work_items), office_id)
-    threading_util.execute_tasks(_upload_one_rating, work_items)
-    logger.info("Completed publishing ratings for office %s", office_id)
+    tally = _start_batch()
+    started = time.monotonic()
+    threading_util.execute_tasks(_upload_one_rating, work_items, label=_label, tally=tally)
+    log_util.outcome(
+        logger,
+        action="Published",
+        noun="rating",
+        total=len(work_items),
+        tally=tally,
+        office_id=office_id,
+        elapsed=time.monotonic() - started,
+    )
 
 
 def _download_one_rating(work_item: list[object]) -> None:
@@ -143,9 +183,10 @@ def _download_one_rating(work_item: list[object]) -> None:
     por = work_item[4]
 
     if por:
-        logger.info("Refreshing staged rating XML (POR) for %s in office %s", rating_id, office_id)
+        logger.info("Extracting rating XML (POR) for %s in office %s", rating_id, office_id)
         try:
-            rating_xml = cwms.get_ratings_xml(rating_id, office_id)
+            with cda_errors.ratings_request():
+                rating_xml = cwms.get_ratings_xml(rating_id, office_id)
         except Exception as error:
             if not _handle_missing_rating(error, rating_id, office_id, ""):
                 raise
@@ -155,22 +196,20 @@ def _download_one_rating(work_item: list[object]) -> None:
         filesystem_store.write_json(_xml_to_json_payload(rating_xml), office_id, RATINGS_FOLDER, f"{rating_id}.por")
         return
 
-    begin_str = begin.strftime(DATE_TIME_FORMAT)
-    end_str = end.strftime(DATE_TIME_FORMAT)
     logger.info(
-        "Refreshing staged rating XML %s for office %s from %s to %s",
+        "Extracting rating XML %s for office %s [%s]",
         rating_id,
         office_id,
-        begin_str,
-        end_str,
+        log_util.window(begin, end),
     )
     try:
-        rating_xml = cwms.get_ratings_xml(rating_id, office_id, begin=begin, end=end)
+        with cda_errors.ratings_request():
+            rating_xml = cwms.get_ratings_xml(rating_id, office_id, begin=begin, end=end)
     except Exception as error:
         # A resolved rating id that this project has no curve for is ordinary,
         # not a fault. Staging nothing means publish skips it.
         if not _handle_missing_rating(
-            error, rating_id, office_id, f" between {begin_str} and {end_str}"
+            error, rating_id, office_id, f" between {log_util.window(begin, end)}"
         ):
             raise
 

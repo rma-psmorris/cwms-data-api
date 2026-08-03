@@ -107,7 +107,7 @@ def test_missing_location_level_is_not_a_failure(mocker, caplog):
     project is expected, not a fault.
     """
     import logging
-    caplog.set_level(logging.INFO)
+    caplog.set_level(logging.DEBUG)
     mocker.patch("cwms.get_location_levels", side_effect=_api_error(404, '{"message":"Not found."}'))
     mock_write = mocker.patch("utils.filesystem_store.write_json")
 
@@ -124,7 +124,7 @@ def test_missing_location_level_is_not_a_failure(mocker, caplog):
 
 def test_missing_por_location_level_is_not_a_failure(mocker, caplog):
     import logging
-    caplog.set_level(logging.INFO)
+    caplog.set_level(logging.DEBUG)
     mocker.patch("cwms.get_location_levels", side_effect=_api_error(404, '{"message":"Not found."}'))
     mock_write = mocker.patch("utils.filesystem_store.write_json")
 
@@ -144,3 +144,15 @@ def test_location_level_server_errors_still_propagate(mocker):
         location_level._download_one_location_level(
             ["SWT", "EUFA-Dam.Elev.Inst.0.Top of Flood", None, None, True]
         )
+
+
+def test_nothing_configured_is_not_a_warning(caplog):
+    import logging
+    caplog.set_level(logging.DEBUG)
+
+    location_level.stage_location_levels("SWT", [], "2026-06-01", "2026-08-03")
+    location_level.publish_staged_location_levels("SWT", [], "2026-06-01", "2026-08-03")
+
+    assert not [r for r in caplog.records if r.levelno >= logging.WARNING]
+    assert "nothing to extract" in caplog.text
+    assert "nothing to load" in caplog.text

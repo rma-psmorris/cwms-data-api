@@ -16,18 +16,40 @@
 #  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 #  SOFTWARE.
 import logging
+import time
 from datetime import datetime
 from typing import Iterable
 
 import cwms
 import utils.filesystem_store as filesystem_store
 import utils.cda_errors as cda_errors
+import utils.log_util as log_util
 import utils.threading_util as threading_util
 from config import LocationLevelConfig
 
 logger = logging.getLogger(__name__)
+# Filename-safe, for the staged path. Display comes from log_util.
 DATE_TIME_FORMAT = "%Y-%m-%d %H.%M.%S"
 LEVELS_FOLDER = "LocationLevels"
+
+_NO_VALUES = "with no values"
+_NO_RECORDS = "with no records to publish"
+
+_tally = log_util.Tally()
+
+
+def _start_batch() -> log_util.Tally:
+    global _tally
+    _tally = log_util.Tally()
+
+    return _tally
+
+
+def _label(work_item) -> str:
+    if work_item[4]:
+        return f"{work_item[1]} [POR]"
+
+    return f"{work_item[1]} [{log_util.window(work_item[2], work_item[3])}]"
 
 
 def stage_location_levels(
@@ -36,16 +58,26 @@ def stage_location_levels(
     default_start: str | None,
     default_end: str | None,
 ) -> None:
+    levels = list(levels)
     work_items = _build_location_level_work_items(
         office_id, levels, default_start, default_end
     )
     if not work_items:
-        logger.warning("No valid location level items found for office %s", office_id)
+        logger.debug("No location levels configured for office %s; nothing to extract.", office_id)
         return
 
-    logger.info("Staging %d location level item(s) for office %s", len(work_items), office_id)
-    threading_util.execute_tasks(_download_one_location_level, work_items)
-    logger.info("Completed staging location levels for office %s", office_id)
+    tally = _start_batch()
+    started = time.monotonic()
+    threading_util.execute_tasks(_download_one_location_level, work_items, label=_label, tally=tally)
+    log_util.outcome(
+        logger,
+        action="Staged",
+        noun="location level",
+        total=len(work_items),
+        tally=tally,
+        office_id=office_id,
+        elapsed=time.monotonic() - started,
+    )
 
 
 def publish_staged_location_levels(
@@ -54,16 +86,26 @@ def publish_staged_location_levels(
     default_start: str | None,
     default_end: str | None,
 ) -> None:
+    levels = list(levels)
     work_items = _build_location_level_work_items(
         office_id, levels, default_start, default_end
     )
     if not work_items:
-        logger.warning("No valid location level items found for office %s", office_id)
+        logger.debug("No location levels configured for office %s; nothing to load.", office_id)
         return
 
-    logger.info("Publishing %d staged location level item(s) for office %s", len(work_items), office_id)
-    threading_util.execute_tasks(_upload_one_location_level, work_items)
-    logger.info("Completed publishing location levels for office %s", office_id)
+    tally = _start_batch()
+    started = time.monotonic()
+    threading_util.execute_tasks(_upload_one_location_level, work_items, label=_label, tally=tally)
+    log_util.outcome(
+        logger,
+        action="Published",
+        noun="location level",
+        total=len(work_items),
+        tally=tally,
+        office_id=office_id,
+        elapsed=time.monotonic() - started,
+    )
 
 
 def _download_one_location_level(work_item: list[object]) -> None:
@@ -74,31 +116,29 @@ def _download_one_location_level(work_item: list[object]) -> None:
     por = work_item[4]
 
     if por:
-        logger.info("Refreshing staged location levels (POR) for %s in office %s", level_id, office_id)
+        logger.info("Extracting location levels (POR) for %s in office %s", level_id, office_id)
         try:
             level_data = cwms.get_location_levels(level_id_mask=level_id, office_id=office_id).json
         except Exception as error:
             if not cda_errors.is_no_data(error):
                 raise
 
-            logger.info(
+            logger.debug(
                 "No location level values for %s in office %s; nothing staged.",
                 level_id,
                 office_id,
             )
+            _tally.record(_NO_VALUES, level_id)
             return
 
         filesystem_store.write_json(level_data, office_id, LEVELS_FOLDER, f"{level_id}.por")
         return
 
-    begin_str = begin.strftime(DATE_TIME_FORMAT)
-    end_str = end.strftime(DATE_TIME_FORMAT)
     logger.info(
-        "Refreshing staged location level %s for office %s from %s to %s",
+        "Extracting location level %s for office %s [%s]",
         level_id,
         office_id,
-        begin_str,
-        end_str,
+        log_util.window(begin, end),
     )
 
     try:
@@ -114,13 +154,14 @@ def _download_one_location_level(work_item: list[object]) -> None:
 
         # A resolved level id that this project has no values for is ordinary,
         # not a fault. Staging nothing means publish skips it.
-        logger.info(
+        logger.debug(
             "No location level values for %s in office %s between %s and %s; nothing staged.",
             level_id,
             office_id,
-            begin_str,
-            end_str,
+            log_util.display(begin),
+            log_util.display(end),
         )
+        _tally.record(_NO_VALUES, level_id)
         return
 
     filesystem_store.write_json(level_data, office_id, LEVELS_FOLDER, level_id)
@@ -143,7 +184,8 @@ def _upload_one_location_level(work_item: list[object]) -> None:
 
     levels = staged_data.get("levels", []) if isinstance(staged_data, dict) else []
     if not levels:
-        logger.info("No location level records to publish for %s in office %s", level_id, office_id)
+        logger.debug("No location level records to publish for %s in office %s", level_id, office_id)
+        _tally.record(_NO_RECORDS, level_id)
         return
 
     for level_record in levels:

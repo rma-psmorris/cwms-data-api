@@ -333,6 +333,33 @@ def test_the_phase_is_restored_even_if_the_body_raises():
     assert log_util.current_phase() is None
 
 
+def test_the_direction_names_the_endpoint_each_phase_talks_to():
+    """
+    A status code or a retry count does not say which endpoint it happened
+    against, and that decides where a reader looks next.
+    """
+    with log_util.phase(log_util.EXTRACT):
+        assert log_util.direction() == "EXTRACT (reading from the source)"
+
+    with log_util.phase(log_util.LOAD):
+        assert log_util.direction() == "LOAD (writing to the destination)"
+
+
+def test_the_direction_outside_a_phase_claims_nothing():
+    assert log_util.direction() == log_util.UNKNOWN_DIRECTION
+    assert "unknown phase" in log_util.direction()
+
+
+def test_an_unrecognized_phase_still_renders_rather_than_raising():
+    """
+    The callers are a log filter and the retry reporter, so a KeyError here
+    would surface as a failure on the way to reporting something else - the same
+    trap the formatter's phase default exists to avoid.
+    """
+    with log_util.phase("VERIFY"):
+        assert log_util.direction() == "VERIFY"
+
+
 def test_installing_the_phase_tag_twice_does_not_grow_the_factory_chain():
     log_util.install_phase_tag()
     once = logging.getLogRecordFactory()

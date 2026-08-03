@@ -87,19 +87,7 @@ def _read_env(name: str, default: str) -> str:
 _STAGE = log_util.EXTRACT
 _PUBLISH = log_util.LOAD
 _phase = log_util.phase
-
-_DIRECTIONS = {
-    log_util.EXTRACT: "reading from the source",
-    log_util.LOAD: "writing to the destination",
-}
-
-
-def _direction() -> str:
-    phase = log_util.current_phase()
-    if phase is None:
-        return "an unknown phase"
-
-    return f"{phase} ({_DIRECTIONS[phase]})"
+_direction = log_util.direction
 
 
 class _FriendlyCdaLogFilter(logging.Filter):
@@ -170,12 +158,10 @@ def pipeline(config: DownloadConfig, session_manager: SessionManager) -> None:
     scope = _scope_of(config)
     covered = log_util.window(config.settings.start_time, config.settings.end_time)
 
+    detail = f"window {covered}  |  {scope}"
+
     if session_manager.has_source_session:
-        with session_manager.source_session(), _phase(
-            _STAGE,
-            endpoint=session_manager.endpoints.source_cda_url,
-            detail=f"window {covered}  |  {scope}",
-        ):
+        with session_manager.source_session(detail=detail):
             for office in config.offices(enabled_only=True):
                 _stage_office_data(office)
 
@@ -184,11 +170,7 @@ def pipeline(config: DownloadConfig, session_manager: SessionManager) -> None:
     else:
         logger.info("SOURCE_CDA_URL is not configured; skipping source download and using staged files only.")
 
-    with session_manager.dest_session(), _phase(
-        _PUBLISH,
-        endpoint=session_manager.endpoints.dest_cda_url,
-        detail=f"window {covered}  |  {scope}",
-    ):
+    with session_manager.dest_session(detail=detail):
         for office in config.offices(enabled_only=True):
             _publish_office_data(office)
 

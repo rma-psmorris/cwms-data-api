@@ -29,8 +29,10 @@ module, which made one run read like several tools:
 
 * **Which half of the pipeline is running.** Extract and load log near-identical
   wording, so a line lifted out of context - pasted into a ticket, grepped out of
-  a file - could not say which direction it described. `phase` records that, and
-  `install_phase_tag` puts it on every record.
+  a file - could not say which direction it described. `phase` records that,
+  `install_phase_tag` puts it on every record, and `direction` renders it as
+  prose for lines that report a failed call rather than the phase itself.
+  `session_manager` enters `phase` with the session, so the two cannot disagree.
 
 * **Per-item outcomes.** "Nothing here" is an ordinary, bulk outcome: whole
   association categories are applied to every project, so most ids have nothing
@@ -55,6 +57,13 @@ DISPLAY_FORMAT = "%Y-%m-%d %H:%M"
 
 EXTRACT = "EXTRACT"
 LOAD = "LOAD"
+
+_DIRECTIONS = {
+    EXTRACT: "reading from the source",
+    LOAD: "writing to the destination",
+}
+
+UNKNOWN_DIRECTION = "an unknown phase"
 
 _BANNER_RULE = "=" * 78
 _SUMMARY_RULE = "-" * 78
@@ -139,6 +148,21 @@ def current_phase() -> str | None:
     return _current_phase
 
 
+def direction() -> str:
+    """
+    The current phase named alongside what it is doing - ``"EXTRACT (reading
+    from the source)"``.
+    """
+    name = current_phase()
+
+    if name is None:
+        return UNKNOWN_DIRECTION
+
+    described = _DIRECTIONS.get(name)
+
+    return f"{name} ({described})" if described else name
+
+
 @contextmanager
 def phase(name: str, *, endpoint: str | None = None, detail: str | None = None) -> Iterator[None]:
     """
@@ -161,12 +185,22 @@ def phase(name: str, *, endpoint: str | None = None, detail: str | None = None) 
 
     _pipeline_logger.info("\n%s\n%s\n%s", _BANNER_RULE, "\n".join(lines), _BANNER_RULE)
 
+    failed = False
+
     try:
         yield
+    except BaseException:
+        failed = True
+        raise
     finally:
         elapsed = duration(time.monotonic() - started)
         _pipeline_logger.info(
-            "\n%s\n %s complete in %s\n%s", _SUMMARY_RULE, name, elapsed, _SUMMARY_RULE
+            "\n%s\n %s %s %s\n%s",
+            _SUMMARY_RULE,
+            name,
+            "failed after" if failed else "complete in",
+            elapsed,
+            _SUMMARY_RULE,
         )
         _current_phase = previous
 
@@ -369,9 +403,11 @@ __all__ = [
     "FORMAT",
     "LOAD",
     "Tally",
+    "UNKNOWN_DIRECTION",
     "configure",
     "current_phase",
     "dedupe",
+    "direction",
     "display",
     "duration",
     "formatter",

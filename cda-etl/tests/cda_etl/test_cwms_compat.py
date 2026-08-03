@@ -110,6 +110,41 @@ def test_a_500_is_still_retried(patched, caplog):
     assert "Database Error" in warnings[0]
 
 
+def test_giving_up_says_which_endpoint_it_was_talking_to(patched, caplog):
+    """
+    The attempt count and the backoff do not say whether the source or the
+    destination was refusing, which is where the reader has to look next.
+    """
+    import utils.log_util as log_util
+
+    caplog.set_level(logging.WARNING)
+
+    def fn():
+        raise _api_error(500, '{"message":"Database Error"}')
+
+    with log_util.phase(log_util.EXTRACT):
+        with pytest.raises(cwms.api.ApiError):
+            patched(fn)
+
+    warning = next(r.getMessage() for r in caplog.records if "Gave up" in r.getMessage())
+
+    assert "reading from the source" in warning
+
+
+def test_giving_up_outside_a_phase_claims_no_endpoint(patched, caplog):
+    caplog.set_level(logging.WARNING)
+
+    def fn():
+        raise _api_error(500, '{"message":"Database Error"}')
+
+    with pytest.raises(cwms.api.ApiError):
+        patched(fn)
+
+    warning = next(r.getMessage() for r in caplog.records if "Gave up" in r.getMessage())
+
+    assert "an unknown phase" in warning
+
+
 def test_per_attempt_detail_is_debug_only(patched, caplog):
     """
     Six attempts previously meant twelve lines: an ERROR from cwms.api about the

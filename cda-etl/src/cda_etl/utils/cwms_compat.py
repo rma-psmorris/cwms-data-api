@@ -141,7 +141,7 @@ def disable_retry_on_missing_data() -> bool:
                         _describe_chunk(error),
                         attempts,
                         log_util.duration(time.monotonic() - started),
-                        log_util.current_phase() or "an unknown phase",
+                        log_util.direction(),
                         _describe_cause(error),
                     )
                     raise

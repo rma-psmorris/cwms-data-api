@@ -21,6 +21,7 @@ import os
 import re
 from contextlib import contextmanager
 from typing import Iterator
+from urllib.parse import unquote_plus
 import location
 import location_level
 import project
@@ -38,6 +39,36 @@ logger = logging.getLogger(__name__)
 
 _RESPONSE_STATUS_PATTERN = re.compile(r"response=<Response \[(\d{3})\]>")
 _NOT_CONFIGURED = "<not configured>"
+
+# Pulls the parts of cwms-python's "Failed to fetch data" message that are worth
+# keeping when the cause was a 404: which timeseries, and which window. The rest
+# of that message - the full query string, the incident identifier, the empty
+# details object - describes an expected outcome, so it is dropped.
+_FETCH_WINDOW_PATTERN = re.compile(r"Failed to fetch data from (\S+) to (\S+):")
+_FETCH_TS_NAME_PATTERN = re.compile(r"[?&]name=([^&\s)]+)")
+
+
+def _no_data_window_summary(message: str) -> tuple[str, tuple[object, ...]]:
+    """
+    A one-line "nothing there" summary of a failed fetch, phrased like the
+    equivalent messages the callers log themselves.
+    """
+    window = _FETCH_WINDOW_PATTERN.search(message)
+    name = _FETCH_TS_NAME_PATTERN.search(message)
+
+    if window and name:
+        return (
+            "No values for timeseries %s between %s and %s; nothing staged.",
+            (unquote_plus(name.group(1)), window.group(1), window.group(2)),
+        )
+
+    if window:
+        return (
+            "No values between %s and %s; nothing staged.",
+            (window.group(1), window.group(2)),
+        )
+
+    return ("No values in the requested window; nothing staged.", ())
 
 
 def _read_env(name: str, default: str) -> str:
@@ -94,7 +125,7 @@ class _FriendlyCdaLogFilter(logging.Filter):
                 record.levelname = "INFO"
                 record.msg = (
                     "CWMS API request returned HTTP 404 (nothing found). Whether that matters "
-                    "is decided by the caller; see the next log line for the endpoint."
+                    "is decided by the caller; see the next log line."
                 )
                 record.args = ()
                 return True
@@ -111,16 +142,18 @@ class _FriendlyCdaLogFilter(logging.Filter):
         # which reads like a fault. timeseries._download_one_ts_data treats that
         # case as normal and stages nothing, so soften the log to match. The
         # hint string is only produced for 404.
+        #
+        # Missing timeseries are expected in bulk, so this line stays short:
+        # name and window only. The URL, incident identifier and details object
+        # in the original message are diagnostics for a failure, and this is not
+        # one.
         if message.startswith("Failed to fetch data") and (
             "May be the result of an empty query." in message
             or '"message":"Not found."' in message
         ):
             record.levelno = logging.INFO
             record.levelname = "INFO"
-            record.msg = (
-                "No values in this window (CDA answered 404); nothing staged for it. Details: %s"
-            )
-            record.args = (message,)
+            record.msg, record.args = _no_data_window_summary(message)
             return True
 
         if message.startswith("chunk attempt") and "CWMS API Error" in message:

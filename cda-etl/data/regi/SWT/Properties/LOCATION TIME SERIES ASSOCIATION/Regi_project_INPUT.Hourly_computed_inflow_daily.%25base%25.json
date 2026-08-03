@@ -1,6 +1,0 @@
-{
-  "office-id": "SWT",
-  "category": "LOCATION TIME SERIES ASSOCIATION",
-  "name": "Regi_project_INPUT.Hourly_computed_inflow_daily.%base%",
-  "value": "%base%.Flow-Res In.Ave.~1Day.1Day.Copied-Ccp-Adjusted"
-}

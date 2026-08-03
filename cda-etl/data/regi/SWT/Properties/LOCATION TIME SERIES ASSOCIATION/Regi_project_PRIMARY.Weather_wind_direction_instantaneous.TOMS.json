@@ -1,7 +1,0 @@
-{
-  "office-id": "SWT",
-  "category": "LOCATION TIME SERIES ASSOCIATION",
-  "name": "Regi_project_PRIMARY.Weather_wind_direction_instantaneous.TOMS",
-  "value": "LWSO2.Dir-Wind.Ave.1Hour.1Hour.Raw-Mesonet",
-  "comment": "Description for: Weather_wind_direction_instantaneous"
-}

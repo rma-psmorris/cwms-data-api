@@ -1,15 +1,15 @@
 {
   "begin": "2026-06-01T05:00:00+00:00",
   "date-version-type": "UNVERSIONED",
-  "end": "2026-07-30T05:00:00+00:00",
+  "end": "2026-08-03T05:00:00+00:00",
   "interval": "PT0S",
   "interval-offset": -2147483648,
   "name": "EUFA.Flow-Res Out.Ave.~1Day.1Day.Rev-Regi-Flowgroup",
   "office-id": "SWT",
-  "page": "MTc4NTEyODQwMDAwMHx8NHx8MzAwMDAw",
+  "page": "MTc4MjcwOTIwMDAwMHx8MTR8fDMwMDAwMA==",
   "page-size": 300000,
   "time-zone": "US/Central",
-  "total": 60,
+  "total": 64,
   "units": "cfs",
   "value-columns": [
     {
@@ -327,6 +327,26 @@
     [
       1785387600000,
       3993.45718717885,
+      0
+    ],
+    [
+      1785474000000,
+      2982.3970786674836,
+      0
+    ],
+    [
+      1785560400000,
+      -8455545.320924396,
+      0
+    ],
+    [
+      1785646800000,
+      2014.3319937692668,
+      0
+    ],
+    [
+      1785733200000,
+      2024.8164104418754,
       0
     ]
   ]

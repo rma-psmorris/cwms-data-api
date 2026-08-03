@@ -1,6 +1,0 @@
-{
-  "office-id": "SWT",
-  "category": "LOCATION TIME SERIES ASSOCIATION",
-  "name": "Regi_project_INPUT.Hourly_project_precip.%base%",
-  "value": "%base%.Precip-Inc.Total.1Hour.1Hour.Ccp-Rev"
-}

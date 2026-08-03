@@ -1,7 +1,7 @@
 {
   "begin": "2026-06-01T12:00:00+00:00",
   "date-version-type": "UNVERSIONED",
-  "end": "2026-07-29T12:00:00+00:00",
+  "end": "2026-08-02T12:00:00+00:00",
   "interval": "PT0S",
   "interval-offset": -2147483648,
   "name": "EUFA.Precip-Inc.Total.~1Day.1Day.Ccp-Rev",
@@ -9,7 +9,7 @@
   "page": "MTc4MDMxNTIwMDAwMHx8MTR8fDMwMDAwMA==",
   "page-size": 300000,
   "time-zone": "US/Central",
-  "total": 59,
+  "total": 63,
   "units": "in",
   "value-columns": [
     {
@@ -321,6 +321,26 @@
     ],
     [
       1785326400000,
+      0.0,
+      0
+    ],
+    [
+      1785412800000,
+      0.0,
+      0
+    ],
+    [
+      1785499200000,
+      0.0,
+      0
+    ],
+    [
+      1785585600000,
+      0.0,
+      0
+    ],
+    [
+      1785672000000,
       0.0,
       0
     ]

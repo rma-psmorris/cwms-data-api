@@ -1,6 +1,0 @@
-{
-  "office-id": "SWT",
-  "category": "LOCATION TIME SERIES ASSOCIATION",
-  "name": "Regi_project_INPUT.Weather_wind_direction_instantaneous.%base%",
-  "value": "%base%.Dir-Wind.Inst.1Hour.0.Decodes-Raw"
-}

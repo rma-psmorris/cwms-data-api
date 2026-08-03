@@ -84,8 +84,7 @@ def test_everything_rendered_is_ascii():
     samples = [
         log_util.window(datetime(2026, 6, 1), datetime(2026, 8, 3)),
         log_util.plural(3, "property"),
-        log_util.duration(95),
-        log_util.NOTHING_STAGED_ADVICE,
+        log_util.duration(95)
     ]
 
     for sample in samples:

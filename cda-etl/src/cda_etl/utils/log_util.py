@@ -322,9 +322,6 @@ class Tally:
 # module because threading_util records it and outcome reacts to it: it is the one
 # tallied outcome that might mean something is actually wrong.
 NOTHING_STAGED = "with nothing staged"
-NOTHING_STAGED_ADVICE = (
-    "If that is unexpected, run the extract phase for this window first, or check the config."
-)
 
 
 def outcome(
@@ -364,7 +361,7 @@ def outcome(
         message = f"{message} ({detail})"
 
     if tally.count(NOTHING_STAGED):
-        log.warning("%s. %s", message, NOTHING_STAGED_ADVICE)
+        log.warning("%s.", message)
     else:
         log.info(message)
 
